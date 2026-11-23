@@ -3,6 +3,18 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain13 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **DELAY 2 reverse** (DELAY 2 +, knob 4 DIR: FWD / REVERSE): two heads read the last stretch of the delay time
+  backwards, crossfaded as triangles (no clicks where a head jumps back); the feedback, tone and RATE work as before,
+  the longest time is half (370 ms at FULL up to 2.97 s at 1/8). Kept with the slots (with DELAY 1's STEREO).
+- **Less CPU time** (an overload with MPE chords, both delays and the reverb): every delay line's buffer is a power
+  of two now, a read is a mask instead of a wrap test (the sound bit-exact as before); the saturation of a line
+  written is one test; the chorus reads its two taps linearly (was 4-point Hermite). About 11 % less in all in a
+  heavy scene (6 voices, both delays, chorus, reverb), ~17 % of the effects'.
+
 ## 3.5-rain12 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

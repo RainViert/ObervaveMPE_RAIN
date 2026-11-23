@@ -26,13 +26,20 @@
 #define RV_D4 RVL(3163)
 #define REV_N (REV_PRE_N + RV_IN1 + RV_IN2 + RV_IN3 + RV_IN4 + RV_AP1 + 16u + RV_D1 + RV_AP2 + RV_D2 + RV_AP3 + 16u + RV_D3 + RV_AP4 + RV_D4)
 #define RV_BW (REV_DIV == 2u ? 24000 : 16700)   /* the input's one-pole: ~5 kHz either way */
-#define FX_MEM_N (CHO_N + 2u * DLY_MAX + REV_N)
+/* (RAIN 13) every line's buffer a power of two, so a read is a mask instead of a wrap test (the delays' and the
+ * chorus' already were): ~13 KB more for the reverb's, from what its half rate freed */
+#define P2(x) ((x) <= 64u ? 64u : (x) <= 128u ? 128u : (x) <= 256u ? 256u : (x) <= 512u ? 512u : (x) <= 1024u ? 1024u : \
+               (x) <= 2048u ? 2048u : (x) <= 4096u ? 4096u : (x) <= 8192u ? 8192u : (x) <= 16384u ? 16384u : 32768u)
+#define REV_P2 (P2(REV_PRE_N) + P2(RV_IN1) + P2(RV_IN2) + P2(RV_IN3) + P2(RV_IN4) + P2(RV_AP1 + 16u) + P2(RV_D1) + P2(RV_AP2) + \
+                P2(RV_D2) + P2(RV_AP3 + 16u) + P2(RV_D3) + P2(RV_AP4) + P2(RV_D4))
+#define FX_MEM_N (P2(CHO_N) + 2u * DLY_MAX + REV_P2)
 
-typedef struct { int16_t *b; uint32_t len, w; } line_t;   /* w: where the next sample goes */
+typedef struct { int16_t *b; uint32_t len, w, n; } line_t;   /* w: where the next sample goes; len a power of two (the
+                                                 * buffer), n the length asked for (an allpass's delay) */
 static int16_t fx_mem[FX_MEM_N] __attribute__((section(".pool")));
 static uint32_t fx_used;
 
-static inline int32_t sat16(int32_t v) { return v > 32767 ? 32767 : v < -32767 ? -32767 : v; }
+static inline int32_t sat16(int32_t v) { return (uint32_t)(v + 32767) <= 65534u ? v : v < 0 ? -32767 : 32767; }   /* (one test in range) */
 /* (RAIN 6) a soft knee instead of the hard rail: linear to +-24576 (-2.5 dB), above it rounds off by tanh towards
  * +-32767, as a tape echo saturates (the delays' feedback and the effects' sum no longer scratch when they run hot) */
 static inline __attribute__((always_inline)) int32_t soft16(int32_t v)
@@ -42,22 +49,20 @@ static inline __attribute__((always_inline)) int32_t soft16(int32_t v)
     y = 24576 + softclip((a - 24576) * 4) / 4;
     return v < 0 ? -y : y;
 }
-static void line_init(line_t *l, uint32_t len) { l->b = fx_mem + fx_used; l->len = len; l->w = 0; fx_used += len; }
+static void line_init(line_t *l, uint32_t len) { l->b = fx_mem + fx_used; l->n = len; l->len = P2(len); l->w = 0; fx_used += l->len; }
 static inline __attribute__((always_inline)) int32_t line_read(const line_t *l, uint32_t back)   /* 1 <= back <= len */
 {
-    uint32_t i = l->w + l->len - back;
-    if (i >= l->len) i -= l->len;
-    return l->b[i];
+    return l->b[(l->w - back) & (l->len - 1u)];
 }
 static inline __attribute__((always_inline)) void line_write(line_t *l, int32_t v)
 {
     l->b[l->w] = (int16_t)sat16(v);
-    if (++l->w >= l->len) l->w = 0;
+    l->w = (l->w + 1u) & (l->len - 1u);
 }
 /* Dattorro's allpass: the line holds the inner node, the output is tapped from it. g Q15, signed */
 static inline __attribute__((always_inline)) int32_t ap_step(line_t *l, int32_t in, int32_t g)
 {
-    int32_t d = line_read(l, l->len), v = in - ((d * g) >> 15);
+    int32_t d = line_read(l, l->n), v = in - ((d * g) >> 15);
     line_write(l, v);
     return d + ((v * g) >> 15);
 }
@@ -97,13 +102,16 @@ typedef struct {
     int32_t time, cur, lp, fb, tk, mix;         /* time, cur Q16 entries (cur slews like a tape); tk the tone's one-pole */
     uint32_t sh, n, active;                     /* the rate in use; samples into the current entry */
     int32_t acc, y0, y1;
-    uint32_t pp;                                /* (RAIN 4) DELAY 1 only: ping-pong on its line's two halves */
+    uint32_t pp;                                /* (RAIN 4) DELAY 1: ping-pong on its line's two halves; (RAIN 13) DELAY 2:
+                                                 * reverse (two heads read the last stretch backwards, crossfaded) */
+    int32_t rk, inv;                            /* (RAIN 13) reverse: the heads' place in the stretch, 2^30 / its length */
     int32_t lpr, y0r, y1r;
 } dly_t;
 static dly_t dly1 = {&dl}, dly2 = {&dr};
 static line_t ppl, ppr;                         /* (RAIN 4) the halves of DELAY 1's line, for the ping-pong */
 static volatile uint32_t ctl_dly_pp;
 static uint32_t fx_has_d1 = 1, fx_has_d2 = 1;   /* (RAIN 5) a track sends into it (the engine sets them per block) */
+static volatile uint32_t ctl_d2_rev;            /* (RAIN 13) DELAY 2 reverse */
 static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix, ctl_d2_sh, ctl_d2_ms;   /* (mix 0 until the
                                                  * settings: the sound starts before fx_init, so must every delay) */
 static uint32_t fx_ready;                       /* (RAIN 5) fx_init done: the lines exist (rain4 crashed at boot without it) */
@@ -121,8 +129,8 @@ static void fx_init(void)
     line_init(&rv_ap1, RV_AP1 + 16u); line_init(&rv_d1, RV_D1); line_init(&rv_ap2, RV_AP2); line_init(&rv_d2, RV_D2);
     line_init(&rv_ap3, RV_AP3 + 16u); line_init(&rv_d3, RV_D3); line_init(&rv_ap4, RV_AP4); line_init(&rv_d4, RV_D4);
     dly1.cur = dly1.time = dly2.cur = dly2.time = 11025 << 16;
-    ppl.b = dl.b; ppl.len = DLY_MAX / 2u; ppl.w = 0;
-    ppr.b = dl.b + DLY_MAX / 2u; ppr.len = DLY_MAX / 2u; ppr.w = 0;
+    ppl.b = dl.b; ppl.len = ppl.n = DLY_MAX / 2u; ppl.w = 0;
+    ppr.b = dl.b + DLY_MAX / 2u; ppr.len = ppr.n = DLY_MAX / 2u; ppr.w = 0;
     fx_ready = 1;
 }
 
@@ -145,7 +153,7 @@ static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t m
         uint32_t i;
         d->sh = sh & 3u; d->pp = pp;
         for (i = 0; i < DLY_MAX; i++) d->ln->b[i] = 0;
-        d->n = 0; d->acc = d->lp = d->y0 = d->y1 = d->lpr = d->y0r = d->y1r = 0;
+        d->n = 0; d->acc = d->lp = d->y0 = d->y1 = d->lpr = d->y0r = d->y1r = 0; d->rk = 0;
         d->cur = -1;                            /* (below: straight to the time, the line is empty: no tape slew) */
     }
     samples = ms ? (ms * (FS / 100u) / 10u) >> d->sh   /* (RAIN 2) a time of its own */
@@ -153,6 +161,7 @@ static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t m
     if (samples > mx) samples = mx;
     if (samples < 64u) samples = 64u;
     d->time = (int32_t)(samples << 16);
+    d->inv = (int32_t)((1u << 30) / samples);   /* (RAIN 13) for the reverse's crossfade */
     if (d->cur < 0) d->cur = d->time;
     if (d->mix && fed) d->active = 12u * FS; else if (d->active > HALF_FRAMES) d->active -= HALF_FRAMES; else d->active = 0;
 }
@@ -176,7 +185,7 @@ static void fx_block(const patch_t *p, uint32_t quarter)
     }
     rev_pre_n = 1u + (uint32_t)p->v[P_REV_PRE] * (41u / REV_DIV);
     dly_setup(&dly1, div, p->v[P_DLY_FB], p->v[P_DLY_TONE], p->v[P_DLY_MIX], ctl_dly_sh, ctl_dly_ms, quarter, ctl_dly_pp ? 1u : 0u, fx_has_d1);
-    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter, 0u, fx_has_d2);
+    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter, ctl_d2_rev ? 1u : 0u, fx_has_d2);
     if (rev_mix) rev_active = 24u * FS; else if (rev_active > HALF_FRAMES) rev_active -= HALF_FRAMES; else rev_active = 0;
 }
 
@@ -186,7 +195,8 @@ static inline __attribute__((always_inline)) int32_t line_read_q16(const line_t 
     int32_t f = (back_q16 >> 8) & 255, a = line_read(l, b), c = line_read(l, b + 1u);
     return a + (((c - a) * f) >> 8);
 }
-/* 4-point Hermite for a tap that is always moving (the chorus): no treble loss between the samples */
+/* 4-point Hermite for a tap that is always moving (no treble loss between the samples; RAIN 13: the chorus reads
+ * linearly now, half the reads, for CPU time) */
 static inline __attribute__((always_inline)) int32_t line_read_q16_h(const line_t *l, int32_t back_q16)
 {
     uint32_t b = (uint32_t)back_q16 >> 16;
@@ -345,9 +355,45 @@ static void master_process(int32_t *out, uint32_t n)
 
 /* one delay, one sample: in the send, out the return (MIX applied). At 1 / 2^sh of the rate 2^sh samples are averaged
  * into an entry, the feedback's tone one-pole steps with the line, the output glides between the last two entries */
+/* (RAIN 13) the reverse: over a stretch of L entries (the delay time), head A reads back 2k+1 at step k, i.e. the
+ * stretch just written, backwards; head B the same half a stretch later. Each fades in and out as a triangle, the two
+ * sum to one: no click where a head jumps back. The line holds 2L (so the reverse has half the time) */
+static inline __attribute__((always_inline)) int32_t rev_read(dly_t *d)
+{
+    int32_t L = d->time >> 16, k = d->rk, kb, ta, tb, ra, rb;
+    if (k >= L) k = 0;
+    kb = k + (L >> 1);
+    if (kb >= L) kb -= L;
+    ra = line_read(d->ln, 2u * (uint32_t)k + 1u);
+    rb = line_read(d->ln, 2u * (uint32_t)kb + 1u);
+    ta = (int32_t)(((int64_t)k * d->inv) >> 15); ta = 32767 - clampi(2 * ta - 32767 < 0 ? 32767 - 2 * ta : 2 * ta - 32767, 0, 32767);
+    tb = (int32_t)(((int64_t)kb * d->inv) >> 15); tb = 32767 - clampi(2 * tb - 32767 < 0 ? 32767 - 2 * tb : 2 * tb - 32767, 0, 32767);
+    d->rk = k + 1;
+    return ((ra * ta) >> 15) + ((rb * tb) >> 15);
+}
+
 static inline __attribute__((always_inline)) int32_t dly_run(dly_t *d, int32_t in)
 {
     int32_t w;
+    if (d->pp) {                                /* (RAIN 13) DELAY 2 reverse (DELAY 1's pp is the ping-pong: not here) */
+        if (!d->sh) w = rev_read(d), d->lp += ((w - d->lp) * d->tk) >> 8, line_write(d->ln, soft16(in + ((d->lp * d->fb) >> 15)));
+        else {
+            uint32_t m = (1u << d->sh) - 1u;
+            d->acc += in;
+            if ((d->n & m) == m) {
+                int32_t tk = d->tk << d->sh;
+                if (tk > 256) tk = 256;
+                w = rev_read(d);
+                d->lp += ((w - d->lp) * tk) >> 8;
+                line_write(d->ln, soft16((d->acc >> d->sh) + ((d->lp * d->fb) >> 15)));
+                d->acc = 0;
+                d->y0 = d->y1; d->y1 = w;
+            }
+            w = d->y0 + (((d->y1 - d->y0) * (int32_t)((d->n + 1u) & m)) >> d->sh);
+            d->n++;
+        }
+        return (((w * d->mix) >> 8) * 23170) >> 15;
+    }
     if (!d->sh) {
         if (d->cur < d->time) { d->cur += 1 << 15; if (d->cur > d->time) d->cur = d->time; }
         else if (d->cur > d->time) { d->cur -= 1 << 15; if (d->cur < d->time) d->cur = d->time; }
@@ -427,8 +473,8 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             int32_t bl = (529 << 16) + tri_q(cho_ph) * cho_depth_k, br = (529 << 16) + tri_q(cho_ph + 0x40000000u) * cho_depth_k;
             cho_ph += cho_inc;
             line_write(&cho, cs[i]);
-            l += (line_read_q16_h(&cho, bl) * cm) >> 8;
-            r += (line_read_q16_h(&cho, br) * cm) >> 8;
+            l += (line_read_q16(&cho, bl) * cm) >> 8;
+            r += (line_read_q16(&cho, br) * cm) >> 8;
         }
         if (do_d1 && dly1.pp) { int32_t wl, wr; dly_run_pp(&dly1, ds[i], &wl, &wr); l += wl; r += wr; }
         else if (do_d1) { int32_t w = dly_run(&dly1, ds[i]); l += w; r += w; }

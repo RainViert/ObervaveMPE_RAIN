@@ -66,7 +66,8 @@ static struct {
                                                  * (dly_ms 10 .. 5940 ms, at most what the RATE holds); ok: RAIN2_OK */
     uint8_t d2_div, d2_fb, d2_tone, d2_mix, d2_rate, d2_mode, d2_ms_lo, d2_ms_hi;   /* (RAIN 3) DELAY 2, as DELAY 1's */
     uint8_t mix_dly2[NTRK], rain3_ok;           /* (RAIN 3) the tracks' sends into DELAY 2 (the settings', not a pattern's) */
-    uint8_t d1_pp, rain4_ok;                    /* (RAIN 4) DELAY 1: 0 mono, 1 ping-pong (half the time) */
+    uint8_t d1_pp, rain4_ok;                    /* (RAIN 4) bit 0: DELAY 1 ping-pong (half the time); (RAIN 13) bit 1: DELAY 2
+                                                 * reverse (half the time). MEMORY's slots keep the byte (rn[RN_PP]) */
     mm_slot_t mm[NTRK][MM_N];                   /* (RAIN 9) the modulation matrix per track (MEMORY's slots keep it too) */
     uint8_t mm_slot, rain9_ok;                  /* the slot the MATRIX page shows */
     mm_slot_t mm_prog[NPROG][MM_N];             /* (RAIN 10) each program's matrix: a SOUND saved keeps it, a program
@@ -103,10 +104,11 @@ static void rain_apply(void)                    /* (RAIN) the settings into the 
     ctl_mpe_pdst = set.mpe_pdst % NMD; ctl_mpe_pamt = set.mpe_pamt & 127u;
     ctl_mpe_sdst = set.mpe_sdst % NMD; ctl_mpe_samt = set.mpe_samt & 127u;
     ctl_dly_sh = set.dly_rate & 3u;
-    ctl_dly_pp = set.d1_pp ? 1u : 0u;
+    ctl_dly_pp = set.d1_pp & 1u;
+    ctl_d2_rev = set.d1_pp >> 1 & 1u;           /* (RAIN 13) */
     ctl_dly_ms = dly_eff_ms(set.dly_mode, DLY_MS, set.dly_rate, ctl_dly_pp);
     ctl_d2_div = set.d2_div % NDDIV; ctl_d2_fb = set.d2_fb & 127u; ctl_d2_tone = set.d2_tone & 127u; ctl_d2_mix = set.d2_mix & 127u;
-    ctl_d2_sh = set.d2_rate & 3u; ctl_d2_ms = dly_eff_ms(set.d2_mode, D2_MS, set.d2_rate, 0);
+    ctl_d2_sh = set.d2_rate & 3u; ctl_d2_ms = dly_eff_ms(set.d2_mode, D2_MS, set.d2_rate, set.d1_pp >> 1 & 1u);
     {
         uint32_t t;
         for (t = 0; t < NTRK; t++) ctl_mix_dly2[t] = (uint8_t)(set.mix_dly2[t] > 127u ? 127u : set.mix_dly2[t]);
@@ -1064,21 +1066,22 @@ static void draw_page(void)
             }
         } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
             static const char *const RL[5][4] = {{"RATE", "MODE", "TIME", "STEREO"}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"},
-                                                 {"TIME", "FEEDBK", "TONE", "MIX"}, {"RATE", "MODE", "TIME", ""}};
+                                                 {"TIME", "FEEDBK", "TONE", "MIX"}, {"RATE", "MODE", "TIME", "DIR"}};
             uint32_t r = page == PG_DELAY2 ? 0u : page == PG_MPE ? 1u : page == PG_MPE2 ? 2u : page == PG_DLY2 ? 3u : 4u, v = 0, mx = 0;
             uint32_t d2 = r == 4u, rt = d2 ? set.d2_rate : set.dly_rate, md = d2 ? set.d2_mode : set.dly_mode;
             if (r == 4u) r = 0u;                /* (DELAY 2 + as DELAY +, on DELAY 2's settings) */
             k[i].label = RL[d2 ? 4u : r][i];
-            k[i].present = r || i < 2 || (i == 2 && md) || (i == 3 && !d2);
+            k[i].present = r || i < 2 || (i == 2 && md) || i == 3;
             if (r == 3u) {                      /* (RAIN 3) DELAY 2 */
                 if (!i) { v = set.d2_div % NDDIV; mx = NDDIV - 1u; scat(k[i].value, DDIV_NAME[v]); }
                 else { v = (i == 1 ? set.d2_fb : i == 2 ? set.d2_tone : set.d2_mix) & 127u; mx = 127; fmt_u(k[i].value, v); }
             }
             else if (r == 0u && !i) { v = rt & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
             else if (r == 0u && i == 1) { v = md ? 1u : 0u; mx = 1; scat(k[i].value, v ? "TIME" : "SYNC"); }
-            else if (r == 0u && i == 3) { v = set.d1_pp ? 1u : 0u; mx = 1; scat(k[i].value, v ? "PINGPONG" : "MONO"); }   /* (RAIN 4) */
+            else if (r == 0u && i == 3 && !d2) { v = set.d1_pp & 1u; mx = 1; scat(k[i].value, v ? "PINGPONG" : "MONO"); }   /* (RAIN 4) */
+            else if (r == 0u && i == 3) { v = set.d1_pp >> 1 & 1u; mx = 1; scat(k[i].value, v ? "REVERSE" : "FWD"); }   /* (RAIN 13) */
             else if (r == 0u && i == 2) {        /* (RAIN 2) the time as it sounds (the RATE's most at most) */
-                uint32_t ms = dly_eff_ms(1, d2 ? D2_MS : DLY_MS, rt, d2 ? 0u : set.d1_pp);
+                uint32_t ms = dly_eff_ms(1, d2 ? D2_MS : DLY_MS, rt, d2 ? set.d1_pp >> 1 & 1u : set.d1_pp & 1u);
                 if (ms < 1000u) { fmt_u(k[i].value, ms); scat(k[i].value, "ms"); }
                 else { char t[8]; fmt_u(k[i].value, ms / 1000u); scat(k[i].value, "."); fmt_u(t, (ms % 1000u) / 10u + 100u); scat(k[i].value, t + 1); scat(k[i].value, "s"); }
                 v = ms * 127u / 5940u; mx = 127;
@@ -2695,9 +2698,12 @@ static void app_main(void)
                     uint8_t *lo = page == PG_DLY2P ? &set.d2_ms_lo : &set.dly_ms_lo, *hi = page == PG_DLY2P ? &set.d2_ms_hi : &set.dly_ms_hi;
                     if (k == 0) *rt = (uint8_t)clampi((int32_t)(*rt & 3u) + s1, 0, 3);
                     else if (k == 1) *md = (uint8_t)clampi((int32_t)(*md ? 1 : 0) + s1, 0, 1);
-                    else if (k == 3 && page == PG_DELAY2) set.d1_pp = (uint8_t)clampi((int32_t)(set.d1_pp ? 1 : 0) + s1, 0, 1);   /* (RAIN 4) */
+                    else if (k == 3) {          /* (RAIN 4) DELAY 1 MONO / PINGPONG, (RAIN 13) DELAY 2 FWD / REVERSE */
+                        uint32_t bit = page == PG_DELAY2 ? 1u : 2u;
+                        set.d1_pp = (uint8_t)(s1 > 0 ? set.d1_pp | bit : set.d1_pp & ~bit);
+                    }
                     else if (k == 2 && *md) {   /* (RAIN 2) about 2 % a click, 1 ms at the least */
-                        uint32_t pp = page == PG_DELAY2 && set.d1_pp;
+                        uint32_t pp = page == PG_DELAY2 ? set.d1_pp & 1u : set.d1_pp >> 1 & 1u;
                         int32_t ms = (int32_t)dly_eff_ms(1, *lo | (uint32_t)*hi << 8, *rt, pp), st = ms / 50;
                         ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[*rt & 3u] >> pp);
                         *lo = (uint8_t)ms; *hi = (uint8_t)(ms >> 8);
