@@ -41,6 +41,8 @@ typedef struct {
     uint8_t mch;                                /* (RAIN) MPE: the member channel + 1 its note came on, 0 none */
     int32_t mbend, mpress, mslide;              /* (RAIN) MPE: its bend (Q4 of -8192..8191), pressure (Q8 0..127),
                                                  * slide (Q8 -64..63): followed through a one-pole, ~3 ms */
+    int32_t l1, l2, ln, xq, pan0, rnd;          /* (RAIN 9) this block's levels and X-MOD (the sound's + the matrix's),
+                                                 * the pan it started with, its random value (Q15, one per note) */
 } voice_t;
 
 /* four sounds, one per track (A's also sets the effects). The main loop writes, the ISR reads. */
@@ -87,6 +89,16 @@ static volatile int8_t mpe_slide[16];           /* CC 74 - 64 */
 static volatile uint32_t ctl_mpe_range;         /* the members' bend range in semitones, 0 = MPE off */
 static volatile uint32_t ctl_mpe_pdst, ctl_mpe_pamt, ctl_mpe_sdst, ctl_mpe_samt;   /* pressure / slide: MD_* and 0..127 */
 enum { MD_OFF, MD_AMP, MD_CUT, MD_VIB, MD_PWM, NMD };
+/* (RAIN 9) the modulation matrix, as the Oberheim Matrix-6/12: per track MM_N slots, each a source to a destination by an
+ * amount -100..100 %. Worked per voice per control block (16 samples); a track with no slot in use costs nothing */
+#define MM_N 8u
+enum { MXS_OFF, MXS_LFO, MXS_FENV, MXS_AENV, MXS_VEL, MXS_KEY, MXS_PRESS, MXS_SLIDE, MXS_WHEEL, MXS_RAND, NMXS };
+enum { MXD_OFF, MXD_PITCH, MXD_O1, MXD_O2, MXD_PW, MXD_CUT, MXD_RESO, MXD_AMP, MXD_PAN, MXD_O1LVL, MXD_O2LVL, MXD_NOISE,
+       MXD_XMOD, NMXD };
+typedef struct { uint8_t src, dst; int8_t amt; } mm_slot_t;
+static mm_slot_t ctl_mm[NPART][MM_N];           /* (main loop writes, ISR reads) */
+static volatile uint8_t ctl_mm_used[NPART];     /* a slot of the track is in use */
+static volatile uint8_t ctl_at[NPART];          /* channel pressure (aftertouch) per track, for MPE's PRESS without MPE */
 static uint32_t ev_ch;                          /* (ISR) the event being handled: its MPE channel + 1, else 0 */
 static void note_event_ch(uint32_t part, uint32_t on, uint32_t note, uint32_t vel, uint32_t ch)
 {
@@ -182,6 +194,8 @@ static void voice_start(voice_t *v, uint32_t part, uint32_t note, uint32_t vel, 
         v->mpress = mpe_press[(ev_ch - 1u) & 15u] * 256;
         v->mslide = mpe_slide[(ev_ch - 1u) & 15u] * 256;
     }
+    v->pan0 = pan;
+    v->rnd = (int32_t)(xorshift(&v->noise) >> 16) - 32768;   /* (RAIN 9) RAND: one value per note */
     voice_pan(v, pan);
 }
 
@@ -669,6 +683,7 @@ static void voice_block(voice_t *v, uint32_t card)
     const uint8_t *pv = g->p->v;
     int32_t lfo, p8, p1, p2, cut, fenv, tmp, velg, trem, vint = g->vint, vt = (vint * VINT_ENV[card % NCARD]) >> 7, lfo_to, a;
     int32_t mq_p = 0, mq_s = 0, mpw = 0;      /* (RAIN) MPE: pressure, slide (Q15), their pulse width offset */
+    int32_t mx[NMXD];                           /* (RAIN 9) the matrix per destination, Q15 */
     uint32_t ph, glide_k = g->glide_k;
     /* glide */
     if (v->pitch16 != v->target16) {
@@ -710,6 +725,32 @@ static void voice_block(voice_t *v, uint32_t card)
         if (ctl_mpe_pdst == MD_VIB) p8 += (((lfo * mq_p) >> 15) * (int32_t)ctl_mpe_pamt) >> 13;
         if (ctl_mpe_sdst == MD_VIB) p8 += (((lfo * (mq_s < 0 ? -mq_s : mq_s)) >> 15) * (int32_t)ctl_mpe_samt) >> 13;
     }
+    {                                           /* (RAIN 9) the matrix: the sources, summed per destination (Q15 each) */
+        uint32_t s, pa = v->part % NPART;
+        int32_t i;
+        for (i = 0; i < NMXD; i++) mx[i] = 0;
+        if (ctl_mm_used[pa]) {
+            if (!v->mch) mq_p = (int32_t)ctl_at[pa] * 258;   /* (PRESS without MPE: the track's aftertouch) */
+            for (s = 0; s < MM_N; s++) {
+                const mm_slot_t *m = &ctl_mm[pa][s];
+                int32_t val;
+                if (!m->amt || !m->src || !m->dst || m->src >= NMXS || m->dst >= NMXD) continue;
+                switch (m->src) {
+                case MXS_LFO: val = lfo; break;
+                case MXS_FENV: val = fenv; break;
+                case MXS_AENV: val = v->ae.level >> 9; break;
+                case MXS_VEL: val = (int32_t)v->vel * 258; break;
+                case MXS_KEY: val = clampi(((int32_t)v->note - 60) * 546, -32767, 32767); break;   /* +-5 octaves around C4 */
+                case MXS_PRESS: val = mq_p; break;
+                case MXS_SLIDE: val = mq_s; break;
+                case MXS_WHEEL: val = (int32_t)pv[P_MOD_DEPTH] * 258; break;
+                default: val = v->rnd; break;
+                }
+                mx[m->dst] += (val * ((int32_t)m->amt * 328)) >> 15;   /* (100 % = x 1.0) */
+            }
+            p8 += (mx[MXD_PITCH] * 3) >> 5;     /* 100 %: an octave */
+        }
+    }
 #if BOARD_SMK37
     p8 += (lfo * ctl_vib) >> 15;                /* the SMK-37's mod wheel: pitch only, gentle */
 #endif
@@ -717,6 +758,8 @@ static void voice_block(voice_t *v, uint32_t card)
     p1 = p8 + (pv[P_LFO_PITCH_TO] != TO_O2 ? lfo_to : 0);
     p2 = p8 + (pv[P_LFO_PITCH_TO] != TO_O1 ? lfo_to : 0) + ((int32_t)pv[P_O2_SEMI] - 24) * 256 + g->det_fine8
        + ((fenv * g->env_o2 * 97) >> 15);
+    p1 += (mx[MXD_O1] * 3) >> 5;               /* (RAIN 9) */
+    p2 += (mx[MXD_O2] * 3) >> 5;
     v->inc1 = pitch_inc(p1);
     v->inc2 = pitch_inc(p2);
     tmp = (lfo * g->lfo_pwd);
@@ -724,6 +767,7 @@ static void voice_block(voice_t *v, uint32_t card)
         if (ctl_mpe_pdst == MD_PWM) mpw += mq_p * (int32_t)ctl_mpe_pamt;   /* (as the LFO's PWM at full depth) */
         if (ctl_mpe_sdst == MD_PWM) mpw += mq_s * (int32_t)ctl_mpe_samt;
     }
+    mpw += mx[MXD_PW] * 127;                    /* (RAIN 9: 100 % = the LFO's PWM at full depth) */
     v->pw1 = pw_mod(g->pw1_base, (pv[P_LFO_PWM_TO] != TO_O2 ? tmp : 0) + mpw);
     v->pw2 = pw_mod(g->pw2_base, (pv[P_LFO_PWM_TO] != TO_O1 ? tmp : 0) + mpw);
     /* cutoff, Q8 semitones */
@@ -735,8 +779,20 @@ static void voice_block(voice_t *v, uint32_t card)
         if (ctl_mpe_pdst == MD_CUT) cut += (mq_p * (int32_t)ctl_mpe_pamt * 96) >> 15;
         if (ctl_mpe_sdst == MD_CUT) cut += (mq_s * (int32_t)ctl_mpe_samt * 96) >> 15;
     }
-    if (g->ftype == F_LP24) lad_coef(&v->lc, cut, g->lad_k);
+    cut += (mx[MXD_CUT] * 3) >> 3;              /* (RAIN 9) 100 %: 4 octaves */
+    if (mx[MXD_RESO]) {                         /* (RAIN 9) the resonance per voice: 100 % = its whole range */
+        int32_t rs = clampi(g->reso_sm + mx[MXD_RESO], 0, 127 * 256), rk = 8192 - ((rs * 8467) >> 15);
+        if (g->ftype == F_LP24) lad_coef(&v->lc, cut, (8192 - rk) >> 1);
+        else svf_coef(&v->c1, cut, rk);
+    }
+    else if (g->ftype == F_LP24) lad_coef(&v->lc, cut, g->lad_k);
     else svf_coef(&v->c1, cut, g->reso_k);
+    v->l1 = clampi(g->lvl1 + ((mx[MXD_O1LVL] * 127) >> 15), 0, 127);   /* (RAIN 9) the mix per voice */
+    v->l2 = clampi(g->lvl2 + ((mx[MXD_O2LVL] * 127) >> 15), 0, 127);
+    v->ln = clampi(g->lvln + ((mx[MXD_NOISE] * 127) >> 15), 0, 127);
+    v->xq = clampi((int32_t)g->xmod_q + ((mx[MXD_XMOD] * 127) >> 15), 0, 127);
+    if (mx[MXD_PAN]) voice_pan(v, v->pan0 + ((mx[MXD_PAN] * 64) >> 15));
+    else if (ctl_mm_used[v->part % NPART]) voice_pan(v, v->pan0);
     /* amp */
     velg = 32767 - ((((127 - (int32_t)v->vel) * (int32_t)pv[P_VEL_AMP]) >> 7) * 258);
     trem = 32767 - (((32767 - lfo) * g->lfo_ad) >> 8);
@@ -748,6 +804,7 @@ static void voice_block(voice_t *v, uint32_t card)
         int32_t gs = 32767 + ((mq_s * (int32_t)ctl_mpe_samt) >> 8);
         a = (int32_t)(((int64_t)a * (gs < 0 ? 0 : gs > 49151 ? 49151 : gs)) >> 15);
     }
+    if (mx[MXD_AMP]) a = (int32_t)(((int64_t)a * clampi(32767 + mx[MXD_AMP], 0, 65534)) >> 15);   /* (RAIN 9) up to x 2 */
     v->amp1 = (a * g->gain_q12) >> 12;          /* the sound's VOLUME */
     ui_vlevel[card] = a;
     ui_vnote[card] = v->note;
@@ -759,8 +816,8 @@ static void voice_render(voice_t *v, int32_t *out)
     uint32_t i, inc1 = v->inc1, inc2 = v->inc2, pw1 = v->pw1, pw2 = v->pw2, d1 = inc1 >> 15, d2 = inc2 >> 15;
     int32_t amp0 = v->amp0, da = v->amp1 - v->amp0, gl = v->gl, gr = v->gr, o2n = v->o2.prev;
     const part_t *g = &pt[v->part];
-    int32_t l1 = g->lvl1, l2 = g->lvl2, ln = g->lvln, drv = g->drive_q12, morph_q = g->morph_q;
-    uint32_t ft = g->ftype, xq = g->xmod_q, sy = g->sync_on, ww1 = g->w1, ww2 = g->w2;
+    int32_t l1 = v->l1, l2 = v->l2, ln = v->ln, drv = g->drive_q12, morph_q = g->morph_q;   /* (RAIN 9: the voice's) */
+    uint32_t ft = g->ftype, xq = (uint32_t)v->xq, sy = g->sync_on, ww1 = g->w1, ww2 = g->w2;
     int32_t hw1 = (ww1 & OSC_SAW ? -65536 : 0) + (ww1 & OSC_PLS ? -65536 : 0);
     int32_t hw2 = (ww2 & OSC_SAW ? -65536 : 0) + (ww2 & OSC_PLS ? -65536 : 0);
     for (i = 0; i < CTL; i++) {

@@ -3,6 +3,22 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain9 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The modulation matrix**, as on the Oberheim Matrix-6 / -12: LFO tapped a fourth time opens **MATRIX**, 8 slots per
+  track. KNOB 1 the slot, 2 the SOURCE, 3 the DEST, 4 the AMOUNT (-100..+100 %); the eight slots are listed where the
+  scope is (the chosen one in amber).
+  - Sources: LFO, F-ENV, A-ENV, VELO, KEY (+-5 octaves around C4), PRESS (MPE pressure per note, else the track's
+    aftertouch), SLIDE (MPE CC 74 per note), WHEEL, RAND (one value per note).
+  - Destinations: PITCH (100 % = an octave), OSC 1, OSC 2, PW, CUTOFF (100 % = 4 octaves), RESO, LEVEL (up to x 2),
+    PAN, O1 LVL, O2 LVL, NOISE, X-MOD.
+  - Worked per voice every 16 samples; a track with no slot in use costs nothing (two slots: ~0.2 % CPU).
+  - Kept with MEMORY's slots (SAVE, SAVE) and with the settings; slots saved before load with an empty matrix. A
+    program saved as SOUND (1-99) does not carry it.
+- Channel pressure (aftertouch) is now taken per track, for PRESS without MPE.
+
 ## 3.5-rain8 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

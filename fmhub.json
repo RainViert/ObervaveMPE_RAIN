@@ -1,5 +1,5 @@
 {
-  "what": "OberVave RAIN: a personal variant of zvenson's OberVave (8-voice analog-style poly, four tracks) with MPE on track A (per-note bend, pressure and slide from a LinnStrument or any MPE controller), free MIDI channels for tracks B-D (e.g. an external sequencer), envelopes up to 60 s, two delays (rate down to 1/8 for up to 5.9 s, sync or ms, ping-pong or mono, soft tape-like feedback) and a half-rate reverb for CPU headroom.",
+  "what": "OberVave RAIN: a personal variant of zvenson's OberVave (8-voice analog-style poly, four tracks) with MPE on track A (per-note bend, pressure and slide from a LinnStrument or any MPE controller), free MIDI channels for tracks B-D (e.g. an external sequencer), envelopes up to 60 s, an 8-slot modulation matrix per track (Oberheim Matrix style), two delays (rate down to 1/8 for up to 5.9 s, sync or ms, ping-pong or mono, soft tape-like feedback) and a half-rate reverb for CPU headroom.",
   "kinds": [
     "synth"
   ]

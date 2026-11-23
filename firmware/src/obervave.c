@@ -67,13 +67,19 @@ static struct {
     uint8_t d2_div, d2_fb, d2_tone, d2_mix, d2_rate, d2_mode, d2_ms_lo, d2_ms_hi;   /* (RAIN 3) DELAY 2, as DELAY 1's */
     uint8_t mix_dly2[NTRK], rain3_ok;           /* (RAIN 3) the tracks' sends into DELAY 2 (the settings', not a pattern's) */
     uint8_t d1_pp, rain4_ok;                    /* (RAIN 4) DELAY 1: 0 mono, 1 ping-pong (half the time) */
+    mm_slot_t mm[NTRK][MM_N];                   /* (RAIN 9) the modulation matrix per track (MEMORY's slots keep it too) */
+    uint8_t mm_slot, rain9_ok;                  /* the slot the MATRIX page shows */
 } set;
+#define RAIN9_OK 0x9Au
 #define RAIN4_OK 0x4Eu
 #define RAIN3_OK 0x3Du
 #define D2_MS (set.d2_ms_lo | (uint32_t)set.d2_ms_hi << 8)
 #define RAIN2_OK 0x5Bu
 #define DLY_MS (set.dly_ms_lo | (uint32_t)set.dly_ms_hi << 8)
 #define RAIN_PAGE(pg) ((pg) == PG_DELAY2 || (pg) == PG_DLY2 || (pg) == PG_DLY2P || (pg) == PG_MPE || (pg) == PG_MPE2)
+static const char *const MXS_NAME[NMXS] = {"OFF", "LFO", "F-ENV", "A-ENV", "VELO", "KEY", "PRESS", "SLIDE", "WHEEL", "RAND"};
+static const char *const MXD_NAME[NMXD] = {"OFF", "PITCH", "OSC 1", "OSC 2", "PW", "CUTOFF", "RESO", "LEVEL", "PAN", "O1 LVL",
+                                           "O2 LVL", "NOISE", "X-MOD"};
 static const uint16_t DR_MAX_MS[4] = {740, 1480, 2970, 5940};   /* (RAIN 2) what each RATE's lines hold */
 #define RAIN_OK 0x7Au
 #define NMPE 6u
@@ -98,6 +104,18 @@ static void rain_apply(void)                    /* (RAIN) the settings into the 
     {
         uint32_t t;
         for (t = 0; t < NTRK; t++) ctl_mix_dly2[t] = (uint8_t)(set.mix_dly2[t] > 127u ? 127u : set.mix_dly2[t]);
+        for (t = 0; t < NTRK; t++) {            /* (RAIN 9) the matrix */
+            uint32_t k, used = 0;
+            for (k = 0; k < MM_N; k++) {
+                mm_slot_t m = set.mm[t][k];
+                if (m.src >= NMXS) m.src = 0;
+                if (m.dst >= NMXD) m.dst = 0;
+                m.amt = (int8_t)clampi(m.amt, -100, 100);
+                ctl_mm[t][k] = m;
+                if (m.src && m.dst && m.amt) used = 1;
+            }
+            ctl_mm_used[t] = (uint8_t)used;
+        }
     }
 }
 #define MIDI_OUT_CH (set.midi_ch ? (set.midi_ch - 1u + seq_trk % NTRK) & 15u : 0u)   /* the keys go out on the track's MIDI channel (OMNI: 1) */
@@ -332,8 +350,16 @@ typedef struct {
     uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
     uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp;
     uint8_t rn[RN_N];                           /* (RAIN 5) the delays' settings with the slot: RN_* below, rn[RN_OKB] = RN_OK */
+    mm_slot_t mm[NTRK][MM_N];                   /* (RAIN 9) the matrix with the slot; mm_ok = MM_OK */
+    uint8_t mm_ok;
 } mixset_t;
+#define MM_OK 0x6Du
 typedef struct { uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK]; mixset_t mx; } psnd_t;
+typedef struct {                                /* (RAIN 9) a slot as rain5-8 saved it: without the matrix (read, never written) */
+    uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK];
+    struct { uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
+             uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp; uint8_t rn[RN_N]; } mx;
+} psnd_v1_t;
 typedef struct {                                /* (RAIN 5) a slot as saved before: the same without rn[] (read, never written) */
     uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK];
     struct { uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
@@ -343,7 +369,14 @@ static int slot_load_rn(uint32_t i, void *a, uint32_t na, psnd_t *b)   /* (RAIN 
 {
     if (!slot_load(i, a, na, b, sizeof *b)) return 0;
     memset(b, 0, sizeof *b);
-    return slot_load(i, a, na, b, sizeof(psnd_v0_t));   /* (the same offsets: rn[] after the old fields) */
+    if (!slot_load(i, a, na, b, sizeof(psnd_v1_t))) {   /* (RAIN 9) rain5-8's: no matrix */
+        memset(b->mx.mm, 0, sizeof b->mx.mm); b->mx.mm_ok = 0;
+        return 0;
+    }
+    memset(b, 0, sizeof *b);
+    if (slot_load(i, a, na, b, sizeof(psnd_v0_t))) return -1;   /* (the same offsets: rn[] after the old fields) */
+    memset(b->mx.rn, 0, sizeof b->mx.rn); memset(b->mx.mm, 0, sizeof b->mx.mm); b->mx.mm_ok = 0;
+    return 0;
 }
 static psnd_t psnd[NPAT], psnd_tmp;              /* psnd[n]: slot n's set as saved (or, never saved, as it was first played) */
 static psnd_t clip_snd;                         /* MEMORY's COPY: the sounds and mix (the steps in clip_pat) */
@@ -363,6 +396,7 @@ static void mx_from_set(mixset_t *m)
     m->rn[RN_D2MSL] = set.d2_ms_lo; m->rn[RN_D2MSH] = set.d2_ms_hi;
     for (t = 0; t < NTRK; t++) m->rn[RN_SEND2 + t] = set.mix_dly2[t];
     m->rn[RN_OKB] = RN_OK;
+    memcpy(m->mm, set.mm, sizeof m->mm); m->mm_ok = MM_OK;   /* (RAIN 9) */
 }
 static void mx_to_set(const mixset_t *m)        /* into the settings and the engine */
 {
@@ -380,6 +414,8 @@ static void mx_to_set(const mixset_t *m)        /* into the settings and the eng
         set.d2_ms_lo = m->rn[RN_D2MSL]; set.d2_ms_hi = m->rn[RN_D2MSH];
         for (t = 0; t < NTRK; t++) set.mix_dly2[t] = m->rn[RN_SEND2 + t];
     }
+    if (m->mm_ok == MM_OK) memcpy(set.mm, m->mm, sizeof set.mm);   /* (RAIN 9) the slot's matrix; a slot from before has none */
+    else memset(set.mm, 0, sizeof set.mm);
     mix_apply();
     rain_apply();
 }
@@ -996,6 +1032,19 @@ static void draw_page(void)
             else if (i == 1) { scat(k[i].value, CLICK_NAME[set.click % NCLICK]); k[i].v = set.click % NCLICK; k[i].max = NCLICK - 1; }
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
+        } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) SLOT, SOURCE, DEST, AMOUNT of the track's */
+            static const char *const XL[4] = {"SLOT", "SOURCE", "DEST", "AMOUNT"};
+            const mm_slot_t *m = &set.mm[seq_trk % NTRK][set.mm_slot % MM_N];
+            k[i].label = XL[i];
+            k[i].present = 1;
+            if (!i) { fmt_u(k[i].value, set.mm_slot % MM_N + 1u); k[i].v = set.mm_slot % MM_N; k[i].max = MM_N - 1u; }
+            else if (i == 1) { scat(k[i].value, MXS_NAME[m->src % NMXS]); k[i].v = m->src % NMXS; k[i].max = NMXS - 1u; }
+            else if (i == 2) { scat(k[i].value, MXD_NAME[m->dst % NMXD]); k[i].v = m->dst % NMXD; k[i].max = NMXD - 1u; }
+            else {
+                int32_t a = clampi(m->amt, -100, 100);
+                scat(k[i].value, a < 0 ? "-" : a > 0 ? "+" : ""); fmt_u(k[i].value + slen(k[i].value), (uint32_t)(a < 0 ? -a : a)); scat(k[i].value, "%");
+                k[i].v = a + 100; k[i].max = 200; k[i].bip = 1;
+            }
         } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
             static const char *const RL[5][4] = {{"RATE", "MODE", "TIME", "STEREO"}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"},
                                                  {"TIME", "FEEDBK", "TONE", "MIX"}, {"RATE", "MODE", "TIME", ""}};
@@ -1117,6 +1166,28 @@ static void draw_hints(void)
 
 static void draw_tags(void) { draw_header(); }
 static void draw_scope(void) { ui_scope(scope, SCOPE_N); }
+static void draw_mm_list(void)                  /* (RAIN 9) the MATRIX page: the track's 8 slots where the scope is */
+{
+    uint32_t k, t = seq_trk % NTRK;
+    cv_begin(240, 50, C_SCOPE_BG);
+    for (k = 0; k < MM_N; k++) {
+        const mm_slot_t *m = &set.mm[t][k];
+        char l[24];
+        int32_t a = clampi(m->amt, -100, 100), on = m->src && m->dst && a;
+        l[0] = 0;
+        fmt_u(l, k + 1u); scat(l, " ");
+        if (m->src || m->dst) {
+            static const char *const SS[NMXS] = {"OFF", "LFO", "FENV", "AENV", "VEL", "KEY", "PRES", "SLID", "WHL", "RND"};
+            static const char *const DS[NMXD] = {"OFF", "PTCH", "OSC1", "OSC2", "PW", "CUT", "RES", "LVL", "PAN", "O1LV", "O2LV",
+                                                 "NOIS", "XMOD"};
+            scat(l, SS[m->src % NMXS]); scat(l, ">"); scat(l, DS[m->dst % NMXD]); scat(l, a < 0 ? "-" : "+");
+            fmt_u(l + slen(l), (uint32_t)(a < 0 ? -a : a));
+        } else scat(l, "-");
+        cv_text(3 + (int32_t)(k / 4u) * 119, 1 + (int32_t)(k % 4u) * 12, &FONT_S, l,
+                k == set.mm_slot % MM_N ? C_AMBER : on ? C_CREAM : C_DIMT);
+    }
+    cv_blit(0, 146);
+}
 static void draw_leds(void)                     /* (32 voices: eight lights, each the loudest of its card in all four groups) */
 {
     static int32_t l8[NCARD];
@@ -2069,6 +2140,7 @@ static void midi_in(uint32_t notes_only)
                 if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
                 else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
                 else if (kind == 0xC0u && d1 < NPROG) { trk_load(t, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
+                else if (kind == 0xD0u) ctl_at[t] = (uint8_t)d1;   /* (RAIN 9) the matrix's PRESS */
                 else if (kind == 0xB0u && d1 == 64u) ;   /* (the pedal stays track A's) */
                 else if (kind == 0xB0u && cc_map[d1]) {
                     uint32_t p = cc_map[d1] - 1u;
@@ -2092,6 +2164,7 @@ static void midi_in(uint32_t notes_only)
             uint32_t t = ch - set.midi_ch;
             if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
             else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
+            else if (kind == 0xD0u) ctl_at[t] = (uint8_t)d1;   /* (RAIN 9) */
             else if (kind == 0xC0u && d1 < NPROG) { trk_load(t, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
             else if (kind == 0xB0u && cc_map[d1]) {
                 uint32_t p = cc_map[d1] - 1u;
@@ -2110,6 +2183,7 @@ static void midi_in(uint32_t notes_only)
             dirty_page |= rec || is_seq_page(page); dirty_steps = 1;
         }
         else if (kind == 0xE0u) ctl_bend = (int32_t)(d1 | d2 << 7) - 8192;
+        else if (kind == 0xD0u) ctl_at[set.midi_ch ? 0u : seq_trk % NTRK] = (uint8_t)d1;   /* (RAIN 9) */
         else if (kind == 0xC0u && d1 < NPROG) { trk_load(set.midi_ch ? 0u : seq_trk, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
         else if (kind == 0xB0u) {
             if (d1 == 7u) ctl_cc7 = d2;
@@ -2242,9 +2316,9 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[5] = {sizeof set, SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[6] = {sizeof set, SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
-            for (z = 0; z < 5u; z++) {
+            for (z = 0; z < 6u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
                 if (!set_rc) { memset((uint8_t *)&set + SZ[z], 0, sizeof set - SZ[z]); break; }
             }
@@ -2293,6 +2367,7 @@ static void app_main(void)
         set.ch_trk[0] = set.ch_trk[1] = set.ch_trk[2] = 0; set.dly_rate = 0; set.rain_ok = RAIN_OK;
     }
     if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
+    if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
     if (set.rain4_ok != RAIN4_OK) { set.d1_pp = 0; set.rain4_ok = RAIN4_OK; }   /* (RAIN 4) mono, as rain4 */
     if (set.rain3_ok != RAIN3_OK) {             /* (RAIN 3) DELAY 2: a dotted eighth, no sends yet */
         uint32_t t;
@@ -2460,7 +2535,7 @@ static void app_main(void)
             dirty_page = dirty_steps = dirty_tags = 1; leds_q = 0xFFFFFFFFu;
         }
         if (b & (1u << BTN_ENV)) np = cycle_page(PG_FENV, 2);
-        if (b & (1u << BTN_LFO)) np = cycle_page(PG_LFO, 3);
+        if (b & (1u << BTN_LFO)) np = cycle_page(PG_LFO, 4);   /* (RAIN 9: + MATRIX) */
         if (b & (1u << BTN_ARP)) {
             if (page == PG_ARP) { hold ^= 1u << (seq_trk % NTRK); ctl_hold = hold; dirty_tags = 1; }   /* on its page: the panel's sound's HOLD */
             else np = PG_ARP;
@@ -2581,6 +2656,14 @@ static void app_main(void)
                 else if (k == 2) set.midi_ch = (uint8_t)clampi(set.midi_ch + e, 0, 16);
                 else { set.tune = (int8_t)clampi(set.tune + e, -50, 50); ctl_tune8 = set.tune * 256 / 100; }
                 set_dirty = 1; set_t = fm1_ms;
+            } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) */
+                int32_t s1 = e > 0 ? 1 : -1;
+                mm_slot_t *m = &set.mm[seq_trk % NTRK][set.mm_slot % MM_N];
+                if (k == 0) set.mm_slot = (uint8_t)clampi((int32_t)(set.mm_slot % MM_N) + s1, 0, MM_N - 1);
+                else if (k == 1) m->src = (uint8_t)clampi((int32_t)(m->src % NMXS) + s1, 0, NMXS - 1);
+                else if (k == 2) m->dst = (uint8_t)clampi((int32_t)(m->dst % NMXD) + s1, 0, NMXD - 1);
+                else m->amt = (int8_t)clampi((int32_t)m->amt + e, -100, 100);
+                rain_apply(); set_dirty = 1; set_t = fm1_ms; dirty_steps = 1;
             } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
                 int32_t s1 = e > 0 ? 1 : -1;
                 if (page == PG_DELAY2 || page == PG_DLY2P) {
@@ -2703,7 +2786,7 @@ static void app_main(void)
         fm1_led_key(BTN_HOME, page == PG_PERFORM);
         fm1_led_key(BTN_EDIT, page >= PG_OSC1 && page <= PG_FILTER2);
         fm1_led_key(BTN_ENV, page == PG_FENV || page == PG_AENV);
-        fm1_led_key(BTN_LFO, page >= PG_LFO && page <= PG_LFO2);
+        fm1_led_key(BTN_LFO, page >= PG_LFO && page <= PG_MATRIX);
         fm1_led_key(BTN_FX, page >= PG_CHORUS && page <= PG_DRIVE);
         fm1_led_key(BTN_GLO, page >= PG_OUTPUT && page <= PG_GLOBAL);
         fm1_led_key(BTN_SAVE, (is_seq_page(page) && seq_view == SV_SLOTS) || pend_slot);
@@ -2794,7 +2877,9 @@ static void app_main(void)
             else if (q != leds_q) { leds_q = q; draw_leds(); }
             if (page == PG_GLOBAL && fm1_ms - t_page >= 250u) dirty_page = 1;
         }
-        if (seq_shown() || rec) {               /* the sequencer's strip instead of the scope */
+        if (page == PG_MATRIX && !layer) {      /* (RAIN 9) the matrix's list instead of the scope */
+            if (dirty_steps && fm1_ms - t_steps >= 30u) { dirty_steps = 0; t_steps = fm1_ms; draw_mm_list(); }
+        } else if (seq_shown() || rec) {        /* the sequencer's strip instead of the scope */
             if (ui_seq_ticks != ticks_seen) { ticks_seen = ui_seq_ticks; dirty_steps = 1; }
             if (dirty_steps && fm1_ms - t_steps >= 30u) { dirty_steps = 0; t_steps = fm1_ms; draw_steps(); }
         } else if (scope_state == 3u && fm1_ms - t_scope >= 50u) {
