@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain11 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **Louder echoes and reverb**: the MIX of DELAY, DELAY 2 and REVERB goes up to twice the old top (1.4 of the dry
+  sound at 127, was 0.7). Up to 64 nothing changes; above it the return rises faster (96: x 1.34, 112: x 1.66). The
+  soft knee after the effects keeps a hot return from scratching.
+
 ## 3.5-rain10 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

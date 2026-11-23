@@ -126,11 +126,19 @@ static void fx_init(void)
     fx_ready = 1;
 }
 
+/* (RAIN 11) a return's level (Q8) from MIX 0..127: as before up to 64 (0.35 of the dry), then rising faster to twice
+ * the old top at 127 (1.4 of the dry; the delays' mono return -3 dB under it). The soft knee after the effects keeps it */
+static inline int32_t wet_q8(int32_t v)
+{
+    int32_t d = v > 64 ? v - 64 : 0;
+    return ((v * 180) >> 7) + ((d * d * 46) >> 10);
+}
+
 static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter, uint32_t pp, uint32_t fed)
 {
     uint32_t samples, mx = (pp ? DLY_MAX / 2u : DLY_MAX) - 4u;
     if (!fx_ready) { d->active = 0; return; }   /* (RAIN 5) no line yet */
-    d->mix = (mv * 180) >> 7;                   /* wet up to 0.7 of the dry (Q8) */
+    d->mix = wet_q8(mv);                        /* (RAIN 11) wet up to 1.4 of the dry (Q8), was 0.7 */
     d->fb = fbv * 250;                          /* up to 0.97 */
     d->tk = clampi(((tv * tv) >> 6) + 8, 8, 256);
     if ((sh & 3u) != d->sh || pp != d->pp) {    /* (RAIN) a new RATE (or ping-pong / mono): from silence */
@@ -157,7 +165,7 @@ static void fx_block(const patch_t *p, uint32_t quarter)
     d = p->v[P_CHO_RATE]; cho_inc = (uint32_t)(10 + ((d * d * 590) >> 14)) * 974u;   /* 0.1 .. 5.9 Hz */
     cho_depth_k = p->v[P_CHO_DEPTH] * 67;       /* x the triangle's +-2048 = Q16 samples: up to +-6 ms */
     cho_mix = p->v[P_CHO_MIX];
-    rev_mix = (p->v[P_REV_MIX] * 180) >> 7;
+    rev_mix = wet_q8(p->v[P_REV_MIX]);          /* (RAIN 11) up to 1.4 of the dry, was 0.7 */
     d = p->v[P_REV_SIZE]; rev_decay = 12000 + ((d * d * 19500) >> 14);   /* 0.37 .. 0.96: the top is a near-freeze */
     d = p->v[P_REV_DAMP]; rev_damp_k = 32768 - d * d * 2;   /* the one-pole's k at the half rate */
     if (REV_DIV == 1u) {                        /* the same corner at the full rate: k' = 1 - sqrt(1 - k) */
