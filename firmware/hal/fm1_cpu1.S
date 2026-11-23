@@ -6,7 +6,8 @@
  * audio) have it: interrupts off, no interrupt configuration, its own user and supervisor stacks,
  * then out of the start-up interrupt into fm1_c1_main (in RAM, fm1_cpu1.h), which never returns.
  * fm1_cpu1_start puts this address in the word the chip starts core 1 from (0x01C7FFF8). */
-	.section .text.cpu1,"ax",@progbits
+	.section .c1_text.entry,"ax",@progbits	/* (RAIN 22) in RAM with fm1_c1_main: core 1's first fetch does not go
+					 * through the flash (on the unit where rain17-21 failed it never got here) */
 	.balign 4
 	.balign 4
 	.globl fm1_c1_entry
