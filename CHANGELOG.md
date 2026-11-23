@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain5 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The delays' settings are saved with MEMORY's slot**, as the other effects: DELAY + (RATE, MODE, TIME, STEREO),
+  DELAY 2, DELAY 2 + and the mixer's SEND DELAY 2. SAVE, SAVE keeps them, LOAD brings them back. Slots saved before
+  still load (with the delays as they are).
+
 ## 3.5-rain4 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

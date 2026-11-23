@@ -325,11 +325,26 @@ static uint32_t trk_silent(uint32_t t) { return ctl_mix_off >> (t % NTRK) & 1u; 
  * program numbers, the mixer (level, pan, the four sends, mute, solo), the effects and MASTER. They live behind the
  * pattern's steps in its flash slot, all eight sets in RAM; a pattern without its own set takes what is playing */
 #define PSN2_MAGIC 0x324E5350u                  /* "PSN2" */
+enum { RN_RATE, RN_MODE, RN_MSL, RN_MSH, RN_PP, RN_D2DIV, RN_D2FB, RN_D2TONE, RN_D2MIX, RN_D2RATE, RN_D2MODE, RN_D2MSL, RN_D2MSH,
+       RN_SEND2, RN_OKB = RN_SEND2 + NTRK, RN_N };
+#define RN_OK 0xA7u
 typedef struct {
     uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
     uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp;
+    uint8_t rn[RN_N];                           /* (RAIN 5) the delays' settings with the slot: RN_* below, rn[RN_OKB] = RN_OK */
 } mixset_t;
 typedef struct { uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK]; mixset_t mx; } psnd_t;
+typedef struct {                                /* (RAIN 5) a slot as saved before: the same without rn[] (read, never written) */
+    uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK];
+    struct { uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
+             uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp; } mx;
+} psnd_v0_t;
+static int slot_load_rn(uint32_t i, void *a, uint32_t na, psnd_t *b)   /* (RAIN 5) a slot of either size; an old one's rn[] zero */
+{
+    if (!slot_load(i, a, na, b, sizeof *b)) return 0;
+    memset(b, 0, sizeof *b);
+    return slot_load(i, a, na, b, sizeof(psnd_v0_t));   /* (the same offsets: rn[] after the old fields) */
+}
 static psnd_t psnd[NPAT], psnd_tmp;              /* psnd[n]: slot n's set as saved (or, never saved, as it was first played) */
 static psnd_t clip_snd;                         /* MEMORY's COPY: the sounds and mix (the steps in clip_pat) */
 static pattern_t clip_pat __attribute__((section(".pool")));
@@ -342,6 +357,12 @@ static void mx_from_set(mixset_t *m)
     for (i = 0; i < NFXP; i++) m->fx[i] = set.fx[i];
     m->dv_type = set.dv_type; m->dv_amt = set.dv_amt; m->dv_tone = set.dv_tone; m->dv_mix = set.dv_mix;
     m->m_vol = set.m_vol; m->m_dj = set.m_dj; m->m_drive = set.m_drive; m->m_comp = set.m_comp;
+    m->rn[RN_RATE] = set.dly_rate; m->rn[RN_MODE] = set.dly_mode; m->rn[RN_MSL] = set.dly_ms_lo; m->rn[RN_MSH] = set.dly_ms_hi;
+    m->rn[RN_PP] = set.d1_pp; m->rn[RN_D2DIV] = set.d2_div; m->rn[RN_D2FB] = set.d2_fb; m->rn[RN_D2TONE] = set.d2_tone;
+    m->rn[RN_D2MIX] = set.d2_mix; m->rn[RN_D2RATE] = set.d2_rate; m->rn[RN_D2MODE] = set.d2_mode;
+    m->rn[RN_D2MSL] = set.d2_ms_lo; m->rn[RN_D2MSH] = set.d2_ms_hi;
+    for (t = 0; t < NTRK; t++) m->rn[RN_SEND2 + t] = set.mix_dly2[t];
+    m->rn[RN_OKB] = RN_OK;
 }
 static void mx_to_set(const mixset_t *m)        /* into the settings and the engine */
 {
@@ -352,7 +373,15 @@ static void mx_to_set(const mixset_t *m)        /* into the settings and the eng
     set.fx_ok = FX_OK;
     set.dv_type = m->dv_type; set.dv_amt = m->dv_amt; set.dv_tone = m->dv_tone; set.dv_mix = m->dv_mix;
     set.m_vol = m->m_vol; set.m_dj = m->m_dj; set.m_drive = m->m_drive; set.m_comp = m->m_comp;
+    if (m->rn[RN_OKB] == RN_OK) {              /* (RAIN 5) the slot's delays (a slot saved before: the ones there are stay) */
+        set.dly_rate = m->rn[RN_RATE]; set.dly_mode = m->rn[RN_MODE]; set.dly_ms_lo = m->rn[RN_MSL]; set.dly_ms_hi = m->rn[RN_MSH];
+        set.d1_pp = m->rn[RN_PP]; set.d2_div = m->rn[RN_D2DIV]; set.d2_fb = m->rn[RN_D2FB]; set.d2_tone = m->rn[RN_D2TONE];
+        set.d2_mix = m->rn[RN_D2MIX]; set.d2_rate = m->rn[RN_D2RATE]; set.d2_mode = m->rn[RN_D2MODE];
+        set.d2_ms_lo = m->rn[RN_D2MSL]; set.d2_ms_hi = m->rn[RN_D2MSH];
+        for (t = 0; t < NTRK; t++) set.mix_dly2[t] = m->rn[RN_SEND2 + t];
+    }
     mix_apply();
+    rain_apply();
 }
 static void mx_prepare(uint32_t n)              /* pattern n's mixer, drive, master as the ISR takes them (mx_q) */
 {
@@ -473,7 +502,7 @@ static void pat_fetch(uint32_t n, pattern_t *p)   /* pattern n: its slot, else 1
 {
     n %= NPAT;
     if (pend_slot == n + 1u) { if (p != &pat_old) *p = pat_old; return; }   /* (saved, not written yet: that) */
-    if (!slot_load(n, p, sizeof *p, &psnd_tmp, sizeof psnd_tmp) && p->magic == PAT_MAGIC) {
+    if (!slot_load_rn(n, p, sizeof *p, &psnd_tmp) && p->magic == PAT_MAGIC) {
         if (p->auto_magic != AUTO_MAGIC) auto_init(p);
         return;
     }
@@ -1341,7 +1370,7 @@ static void slot_lens_read(void)
     pat_used = 0;
     for (i = 0; i < NPAT; i++) {
         psnd[i].magic = 0;
-        if (!slot_load(i, &undo_pat, sizeof undo_pat, &psnd[i], sizeof psnd[i]) && undo_pat.magic == PAT_MAGIC) {
+        if (!slot_load_rn(i, &undo_pat, sizeof undo_pat, &psnd[i]) && undo_pat.magic == PAT_MAGIC) {
             if (psnd[i].magic != PSN2_MAGIC) psnd[i].magic = 0;
         } else {
             psnd[i].magic = 0;
