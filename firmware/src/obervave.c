@@ -1135,9 +1135,11 @@ static void draw_page(void)
             t = title;
         }
         {
+            static char c1_tag2[8] = "1C-2.0";   /* (RAIN 20) 1C-2.N: core 1 got to N (0 never ran, 1 its entry, 2 its loop) */
+            c1_tag2[5] = (char)('0' + (c1_reached < 3u ? c1_reached : 0u));
             static char cpu[24];                /* the GLOBAL page: the render time of an audio half (budget 5800 us), SYNC */
             cpu[0] = 0; fmt_u(cpu, ui_render_us); scat(cpu, "us"); scat(cpu, set.sync_int ? " INT" : ctl_ext_quarter ? " CLK" : " AUTO"); scat(cpu, cpu1_on() ? " 2C" : " 1C");   /* (RAIN 17) the cores */
-            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : c1_why == 1 ? "1C-1" : c1_why == 2 ? "1C-2" : c1_why == 3 ? "1C-3" : c1_why == 4 ? "1C-4" : "1C") : 0);
+            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : c1_why == 1 ? "1C-1" : c1_why == 2 ? c1_tag2 : c1_why == 3 ? "1C-3" : c1_why == 4 ? "1C-4" : "1C") : 0);
         }
     }
 }
