@@ -541,7 +541,7 @@ static void cpu1_boot(void)
             fm1_guard_pc_open();                /* (it boots through the chip's ROM: the PC limits open while it starts) */
             fm1_guard_bus_pause();              /* (RAIN 17.1) */
             rc = fm1_cpu1_start();
-            c1_msg |= FM1_DBG_MSG;              /* (RAIN 22) what the paused bus guard saw during the start */
+            c1_msg |= fm1_guard_msg();              /* (RAIN 22) what the paused bus guard saw during the start */
             fm1_guard_bus_resume();
             fm1_guard_enable(FM1_GUARD_PC);
             c1_tries = (uint8_t)(tries + 1u);

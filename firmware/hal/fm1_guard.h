@@ -99,6 +99,7 @@ static void fm1_guard_bus_pause(void)
     FM1_DBG_EN &= ~bus;
     fm1__dbg_lock();
 }
+static uint32_t fm1_guard_msg(void) { return FM1_DBG_MSG; }   /* (RAIN 22) the guard's flags as they are */
 static void fm1_guard_bus_resume(void)
 {
     fm1__dbg_unlock();
