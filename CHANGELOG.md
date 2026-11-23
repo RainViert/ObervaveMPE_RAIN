@@ -10,6 +10,9 @@ A personal variant (RainViert/obervave), not an official OberVave release.
 - **Louder echoes and reverb**: the MIX of DELAY, DELAY 2 and REVERB goes up to twice the old top (1.4 of the dry
   sound at 127, was 0.7). Up to 64 nothing changes; above it the return rises faster (96: x 1.34, 112: x 1.66). The
   soft knee after the effects keeps a hot return from scratching.
+- **The matrix on the sends**: three more destinations, DLY SND, DLY2 SND and REV SND, per voice: +100 % adds the whole
+  send on top of the track's own (from the mixer), -100 % takes it away. VELO > DLY SND: loud notes echo, soft ones
+  stay dry; PRESS > REV SND: pressing a note further sends it into the hall. A delay a slot sends into does not rest.
 
 ## 3.5-rain10 – 2026-11-23
 

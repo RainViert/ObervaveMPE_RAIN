@@ -43,6 +43,8 @@ typedef struct {
                                                  * slide (Q8 -64..63): followed through a one-pole, ~3 ms */
     int32_t l1, l2, ln, xq, pan0, rnd;          /* (RAIN 9) this block's levels and X-MOD (the sound's + the matrix's),
                                                  * the pan it started with, its random value (Q15, one per note) */
+    int32_t dsd[3], ksd[3];                     /* (RAIN 12) the matrix on its sends into DELAY, DELAY 2, REVERB: the change
+                                                 * of the track's send (-127..127), as gains this block (Q15, 0: none) */
 } voice_t;
 
 /* four sounds, one per track (A's also sets the effects). The main loop writes, the ISR reads. */
@@ -94,10 +96,11 @@ enum { MD_OFF, MD_AMP, MD_CUT, MD_VIB, MD_PWM, NMD };
 #define MM_N 8u
 enum { MXS_OFF, MXS_LFO, MXS_FENV, MXS_AENV, MXS_VEL, MXS_KEY, MXS_PRESS, MXS_SLIDE, MXS_WHEEL, MXS_RAND, NMXS };
 enum { MXD_OFF, MXD_PITCH, MXD_O1, MXD_O2, MXD_PW, MXD_CUT, MXD_RESO, MXD_AMP, MXD_PAN, MXD_O1LVL, MXD_O2LVL, MXD_NOISE,
-       MXD_XMOD, NMXD };
+       MXD_XMOD, MXD_SDLY, MXD_SDLY2, MXD_SREV, NMXD };   /* (RAIN 12: + the sends, per voice) */
 typedef struct { uint8_t src, dst; int8_t amt; } mm_slot_t;
 static mm_slot_t ctl_mm[NPART][MM_N];           /* (main loop writes, ISR reads) */
 static volatile uint8_t ctl_mm_used[NPART];     /* a slot of the track is in use */
+static volatile uint8_t ctl_mm_feeds;           /* (RAIN 12) bit 0: a slot sends into DELAY, 1: DELAY 2, 2: REVERB */
 static volatile uint8_t ctl_at[NPART];          /* channel pressure (aftertouch) per track, for MPE's PRESS without MPE */
 static uint32_t ev_ch;                          /* (ISR) the event being handled: its MPE channel + 1, else 0 */
 static void note_event_ch(uint32_t part, uint32_t on, uint32_t note, uint32_t vel, uint32_t ch)
@@ -791,6 +794,9 @@ static void voice_block(voice_t *v, uint32_t card)
     v->l2 = clampi(g->lvl2 + ((mx[MXD_O2LVL] * 127) >> 15), 0, 127);
     v->ln = clampi(g->lvln + ((mx[MXD_NOISE] * 127) >> 15), 0, 127);
     v->xq = clampi((int32_t)g->xmod_q + ((mx[MXD_XMOD] * 127) >> 15), 0, 127);
+    v->dsd[0] = clampi((mx[MXD_SDLY] * 127) >> 15, -127, 127);   /* (RAIN 12) +100 %: the whole send on top */
+    v->dsd[1] = clampi((mx[MXD_SDLY2] * 127) >> 15, -127, 127);
+    v->dsd[2] = clampi((mx[MXD_SREV] * 127) >> 15, -127, 127);
     if (mx[MXD_PAN]) voice_pan(v, v->pan0 + ((mx[MXD_PAN] * 64) >> 15));
     else if (ctl_mm_used[v->part % NPART]) voice_pan(v, v->pan0);
     /* amp */
@@ -811,8 +817,9 @@ static void voice_block(voice_t *v, uint32_t card)
 }
 
 /* ---- the samples of one voice: oscillators -> mix -> input stage (drive) -> filter -> amp -> pan */
-static void voice_render(voice_t *v, int32_t *out)
+static void voice_render(voice_t *v, int32_t *out, int32_t *sd, int32_t *sd2, int32_t *sr)
 {
+    int32_t k0 = v->ksd[0], k1 = v->ksd[1], k2 = v->ksd[2];   /* (RAIN 12) this voice's own sends (0: none) */
     uint32_t i, inc1 = v->inc1, inc2 = v->inc2, pw1 = v->pw1, pw2 = v->pw2, d1 = inc1 >> 15, d2 = inc2 >> 15;
     int32_t amp0 = v->amp0, da = v->amp1 - v->amp0, gl = v->gl, gr = v->gr, o2n = v->o2.prev;
     const part_t *g = &pt[v->part];
@@ -855,6 +862,9 @@ static void voice_render(voice_t *v, int32_t *out)
         y = (y * amp) >> 16;
         out[2u * i] += (y * gl) >> 12;
         out[2u * i + 1u] += (y * gr) >> 12;
+        if (k0) sd[i] += (y * k0) >> 15;
+        if (k1) sd2[i] += (y * k1) >> 15;
+        if (k2) sr[i] += (y * k2) >> 15;
     }
     (void)o2n;
 }
@@ -873,7 +883,7 @@ static void engine_audio(int32_t *out, uint32_t n)
     {                                           /* (RAIN 5) a delay without a send rests (its tail rings out first) */
         uint32_t t, s1 = 0, s2 = 0;
         for (t = 0; t < NPART; t++) { s1 |= ctl_mix_dly[t]; s2 |= ctl_mix_dly2[t]; }
-        fx_has_d1 = s1 != 0; fx_has_d2 = s2 != 0;
+        fx_has_d1 = s1 != 0 || (ctl_mm_feeds & 1u); fx_has_d2 = s2 != 0 || (ctl_mm_feeds & 2u);   /* (RAIN 12: + the matrix) */
     }
     fx_block(&live, tempo_quarter());           /* (the delay: not each beat's phase correction, its tape slew would wobble) */
     vol_q12 = (int32_t)((ctl_cc7 * ctl_cc7) >> 2);
@@ -895,7 +905,20 @@ static void engine_audio(int32_t *out, uint32_t n)
             p = vc[v].part % NPART;
             used |= 1u << p;
             voice_block(&vc[v], v);
-            voice_render(&vc[v], bus[p] + 2u * b);
+            {                                   /* (RAIN 12) the matrix's sends: the track's send + the change, after its
+                                                 * fader (as the mixer's: the bus's mid is 0.707 of the voice) */
+                voice_t *vv = &vc[v];
+                static const volatile uint8_t *const SND[3] = {ctl_mix_dly, ctl_mix_dly2, ctl_mix_rev};
+                uint32_t j;
+                for (j = 0; j < 3u; j++) {
+                    int32_t dd = vv->dsd[j], s0 = SND[j][p];
+                    if (!dd || (ctl_mix_off >> p & 1u)) { vv->ksd[j] = 0; continue; }
+                    if (dd < -s0) dd = -s0;
+                    if (dd > 127 - s0) dd = 127 - s0;
+                    vv->ksd[j] = (int32_t)((((int64_t)dd * 23170 >> 7) * mix_g[p]) >> 12);
+                }
+            }
+            voice_render(&vc[v], bus[p] + 2u * b, snd_d + b, snd_d2 + b, snd_r + b);
         }
     }
     for (p = 0; p < NPART; p++) {               /* the mixer */

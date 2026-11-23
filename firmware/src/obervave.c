@@ -85,7 +85,7 @@ _Static_assert(sizeof set <= SETTINGS_MAX, "the settings outgrew their sector");
 #define RAIN_PAGE(pg) ((pg) == PG_DELAY2 || (pg) == PG_DLY2 || (pg) == PG_DLY2P || (pg) == PG_MPE || (pg) == PG_MPE2)
 static const char *const MXS_NAME[NMXS] = {"OFF", "LFO", "F-ENV", "A-ENV", "VELO", "KEY", "PRESS", "SLIDE", "WHEEL", "RAND"};
 static const char *const MXD_NAME[NMXD] = {"OFF", "PITCH", "OSC 1", "OSC 2", "PW", "CUTOFF", "RESO", "LEVEL", "PAN", "O1 LVL",
-                                           "O2 LVL", "NOISE", "X-MOD"};
+                                           "O2 LVL", "NOISE", "X-MOD", "DLY SND", "DLY2 SND", "REV SND"};
 static const uint16_t DR_MAX_MS[4] = {740, 1480, 2970, 5940};   /* (RAIN 2) what each RATE's lines hold */
 #define RAIN_OK 0x7Au
 #define NMPE 6u
@@ -110,6 +110,15 @@ static void rain_apply(void)                    /* (RAIN) the settings into the 
     {
         uint32_t t;
         for (t = 0; t < NTRK; t++) ctl_mix_dly2[t] = (uint8_t)(set.mix_dly2[t] > 127u ? 127u : set.mix_dly2[t]);
+        {                                       /* (RAIN 12) the delays the matrix sends into (they must not rest) */
+            uint32_t f = 0, k;
+            for (t = 0; t < NTRK; t++)
+                for (k = 0; k < MM_N; k++) {
+                    const mm_slot_t *m = &set.mm[t][k];
+                    if (m->src && m->amt) f |= m->dst == MXD_SDLY ? 1u : m->dst == MXD_SDLY2 ? 2u : m->dst == MXD_SREV ? 4u : 0u;
+                }
+            ctl_mm_feeds = (uint8_t)f;
+        }
         for (t = 0; t < NTRK; t++) {            /* (RAIN 9) the matrix */
             uint32_t k, used = 0;
             for (k = 0; k < MM_N; k++) {
@@ -1187,7 +1196,7 @@ static void draw_mm_list(void)                  /* (RAIN 9) the MATRIX page: the
         if (m->src || m->dst) {
             static const char *const SS[NMXS] = {"OFF", "LFO", "FENV", "AENV", "VEL", "KEY", "PRES", "SLID", "WHL", "RND"};
             static const char *const DS[NMXD] = {"OFF", "PTCH", "OSC1", "OSC2", "PW", "CUT", "RES", "LVL", "PAN", "O1LV", "O2LV",
-                                                 "NOIS", "XMOD"};
+                                                 "NOIS", "XMOD", "DLY", "DLY2", "REV"};
             scat(l, SS[m->src % NMXS]); scat(l, ">"); scat(l, DS[m->dst % NMXD]); scat(l, a < 0 ? "-" : "+");
             fmt_u(l + slen(l), (uint32_t)(a < 0 ? -a : a));
         } else scat(l, "-");
