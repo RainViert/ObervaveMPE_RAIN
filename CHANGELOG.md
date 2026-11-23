@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain16 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- The mixer: a track's level and pan as one gain in 32 bits (two 64-bit products a sample and channel before, slow on
+  the FM-1's 32-bit core); a track that sends into no effect skips the five send sums. The sound differs by 3 LSB at
+  most.
+
 ## 3.5-rain15 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

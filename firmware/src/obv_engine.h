@@ -933,14 +933,19 @@ static void engine_audio(int32_t *out, uint32_t n)
         {
         int32_t g = g0 << 8, dg = ((mix_g[p] - g0) << 8) / (int32_t)n;   /* (the level glides over the half, Q8) */
         uint32_t pk = 0;
-        for (i = 0; i < n; i++, g += dg) {
-            int32_t l = (int32_t)(((int64_t)bus[p][2u * i] * (g >> 8) >> 12) * gl >> 12), r = (int32_t)(((int64_t)bus[p][2u * i + 1u] * (g >> 8) >> 12) * gr >> 12);
-            int32_t m = (l + r) >> 1;
+        int32_t any_send = sc | sd | sd2 | sr | sv;
+        for (i = 0; i < n; i++, g += dg) {     /* (RAIN 16) level x pan as one Q12 gain, 32-bit (was two 64-bit products); the
+                                                 * bus / 4 first (it can reach ~524k: no overflow), as the output stage does */
+            int32_t gq = g >> 8, Gl = (gq * gl) >> 12, Gr = (gq * gr) >> 12;
+            int32_t l = ((bus[p][2u * i] >> 2) * Gl) >> 10, r = ((bus[p][2u * i + 1u] >> 2) * Gr) >> 10;
             uint32_t al = (uint32_t)(l < 0 ? -l : l), ar = (uint32_t)(r < 0 ? -r : r);
             if (al > pk) pk = al;
             if (ar > pk) pk = ar;
             out[2u * i] += l; out[2u * i + 1u] += r;
-            snd_c[i] += (m * sc) >> 7; snd_d[i] += (m * sd) >> 7; snd_d2[i] += (m * sd2) >> 7; snd_r[i] += (m * sr) >> 7; snd_v[i] += (m * sv) >> 7;
+            if (any_send) {                     /* (RAIN 16: a track that sends nowhere skips the five sums) */
+                int32_t m = (l + r) >> 1;
+                snd_c[i] += (m * sc) >> 7; snd_d[i] += (m * sd) >> 7; snd_d2[i] += (m * sd2) >> 7; snd_r[i] += (m * sr) >> 7; snd_v[i] += (m * sv) >> 7;
+            }
         }
         if (pk > ui_trk_peak[p]) ui_trk_peak[p] = pk;
         }
