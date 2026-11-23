@@ -149,9 +149,9 @@ static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t m
     d->mix = wet_q8(mv);                        /* (RAIN 11) wet up to 1.4 of the dry (Q8), was 0.7 */
     d->fb = fbv * 250;                          /* up to 0.97 */
     d->tk = clampi(((tv * tv) >> 6) + 8, 8, 256);
-    if ((sh & 3u) != d->sh || pp != d->pp) {    /* (RAIN) a new RATE (or ping-pong / mono): from silence */
+    if ((sh & 7u) != d->sh || pp != d->pp) {    /* (RAIN) a new RATE (or ping-pong / mono): from silence */
         uint32_t i;
-        d->sh = sh & 3u; d->pp = pp;
+        d->sh = sh & 7u; d->pp = pp;
         for (i = 0; i < DLY_MAX; i++) d->ln->b[i] = 0;
         d->n = 0; d->acc = d->lp = d->y0 = d->y1 = d->lpr = d->y0r = d->y1r = 0; d->rk = 0;
         d->cur = -1;                            /* (below: straight to the time, the line is empty: no tape slew) */

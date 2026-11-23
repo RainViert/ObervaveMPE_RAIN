@@ -3,6 +3,13 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain15 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **RATE 1/16** for both delays (DELAY +, DELAY 2 +): the line at 2.76 kHz, up to 11.9 s (ping-pong and reverse:
+  5.9 s), very dark, the bandwidth about 1.4 kHz, as a worn tape.
+
 ## 3.5-rain14 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

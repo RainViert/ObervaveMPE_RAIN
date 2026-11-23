@@ -87,15 +87,17 @@ _Static_assert(sizeof set <= SETTINGS_MAX, "the settings outgrew their sector");
 static const char *const MXS_NAME[NMXS] = {"OFF", "LFO", "F-ENV", "A-ENV", "VELO", "KEY", "PRESS", "SLIDE", "WHEEL", "RAND"};
 static const char *const MXD_NAME[NMXD] = {"OFF", "PITCH", "OSC 1", "OSC 2", "PW", "CUTOFF", "RESO", "LEVEL", "PAN", "O1 LVL",
                                            "O2 LVL", "NOISE", "X-MOD", "DLY SND", "DLY2 SND", "REV SND"};
-static const uint16_t DR_MAX_MS[4] = {740, 1480, 2970, 5940};   /* (RAIN 2) what each RATE's lines hold */
+#define NDR 5u                                  /* (RAIN 14: + 1/16) */
+#define DRATE(x) ((x) % NDR)
+static const uint16_t DR_MAX_MS[NDR] = {740, 1480, 2970, 5940, 11880};   /* (RAIN 2) what each RATE's lines hold */
 #define RAIN_OK 0x7Au
 #define NMPE 6u
 static const uint8_t MPE_RANGE[NMPE] = {0, 2, 12, 24, 48, 96};
 static const char *const MD_NAME[NMD] = {"OFF", "LEVEL", "CUTOFF", "VIBRATO", "PWM"};
-static const char *const DR_NAME[4] = {"FULL", "1/2", "1/4", "1/8"};
+static const char *const DR_NAME[NDR] = {"FULL", "1/2", "1/4", "1/8", "1/16"};
 static uint32_t dly_eff_ms(uint32_t mode, uint32_t ms, uint32_t rate, uint32_t pp)   /* (RAIN 2) 0: SYNC; else the ms as it sounds */
 {
-    uint32_t mx = DR_MAX_MS[rate & 3u] >> (pp ? 1 : 0);   /* (RAIN 4: the ping-pong on half the line) */
+    uint32_t mx = DR_MAX_MS[DRATE(rate)] >> (pp ? 1 : 0);   /* (RAIN 4: the ping-pong on half the line) */
     return mode ? (ms > mx ? mx : ms < 10u ? 10u : ms) : 0u;
 }
 static void rain_apply(void)                    /* (RAIN) the settings into the engine */
@@ -103,12 +105,12 @@ static void rain_apply(void)                    /* (RAIN) the settings into the 
     ctl_mpe_range = MPE_RANGE[set.mpe % NMPE];
     ctl_mpe_pdst = set.mpe_pdst % NMD; ctl_mpe_pamt = set.mpe_pamt & 127u;
     ctl_mpe_sdst = set.mpe_sdst % NMD; ctl_mpe_samt = set.mpe_samt & 127u;
-    ctl_dly_sh = set.dly_rate & 3u;
+    ctl_dly_sh = DRATE(set.dly_rate);
     ctl_dly_pp = set.d1_pp & 1u;
     ctl_d2_rev = set.d1_pp >> 1 & 1u;           /* (RAIN 13) */
     ctl_dly_ms = dly_eff_ms(set.dly_mode, DLY_MS, set.dly_rate, ctl_dly_pp);
     ctl_d2_div = set.d2_div % NDDIV; ctl_d2_fb = set.d2_fb & 127u; ctl_d2_tone = set.d2_tone & 127u; ctl_d2_mix = set.d2_mix & 127u;
-    ctl_d2_sh = set.d2_rate & 3u; ctl_d2_ms = dly_eff_ms(set.d2_mode, D2_MS, set.d2_rate, set.d1_pp >> 1 & 1u);
+    ctl_d2_sh = DRATE(set.d2_rate); ctl_d2_ms = dly_eff_ms(set.d2_mode, D2_MS, set.d2_rate, set.d1_pp >> 1 & 1u);
     {
         uint32_t t;
         for (t = 0; t < NTRK; t++) ctl_mix_dly2[t] = (uint8_t)(set.mix_dly2[t] > 127u ? 127u : set.mix_dly2[t]);
@@ -1076,7 +1078,7 @@ static void draw_page(void)
                 if (!i) { v = set.d2_div % NDDIV; mx = NDDIV - 1u; scat(k[i].value, DDIV_NAME[v]); }
                 else { v = (i == 1 ? set.d2_fb : i == 2 ? set.d2_tone : set.d2_mix) & 127u; mx = 127; fmt_u(k[i].value, v); }
             }
-            else if (r == 0u && !i) { v = rt & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
+            else if (r == 0u && !i) { v = DRATE(rt); mx = NDR - 1u; scat(k[i].value, DR_NAME[v]); }
             else if (r == 0u && i == 1) { v = md ? 1u : 0u; mx = 1; scat(k[i].value, v ? "TIME" : "SYNC"); }
             else if (r == 0u && i == 3 && !d2) { v = set.d1_pp & 1u; mx = 1; scat(k[i].value, v ? "PINGPONG" : "MONO"); }   /* (RAIN 4) */
             else if (r == 0u && i == 3) { v = set.d1_pp >> 1 & 1u; mx = 1; scat(k[i].value, v ? "REVERSE" : "FWD"); }   /* (RAIN 13) */
@@ -2696,7 +2698,7 @@ static void app_main(void)
                 if (page == PG_DELAY2 || page == PG_DLY2P) {
                     uint8_t *rt = page == PG_DLY2P ? &set.d2_rate : &set.dly_rate, *md = page == PG_DLY2P ? &set.d2_mode : &set.dly_mode;
                     uint8_t *lo = page == PG_DLY2P ? &set.d2_ms_lo : &set.dly_ms_lo, *hi = page == PG_DLY2P ? &set.d2_ms_hi : &set.dly_ms_hi;
-                    if (k == 0) *rt = (uint8_t)clampi((int32_t)(*rt & 3u) + s1, 0, 3);
+                    if (k == 0) *rt = (uint8_t)clampi((int32_t)DRATE(*rt) + s1, 0, NDR - 1);
                     else if (k == 1) *md = (uint8_t)clampi((int32_t)(*md ? 1 : 0) + s1, 0, 1);
                     else if (k == 3) {          /* (RAIN 4) DELAY 1 MONO / PINGPONG, (RAIN 13) DELAY 2 FWD / REVERSE */
                         uint32_t bit = page == PG_DELAY2 ? 1u : 2u;
@@ -2705,7 +2707,7 @@ static void app_main(void)
                     else if (k == 2 && *md) {   /* (RAIN 2) about 2 % a click, 1 ms at the least */
                         uint32_t pp = page == PG_DELAY2 ? set.d1_pp & 1u : set.d1_pp >> 1 & 1u;
                         int32_t ms = (int32_t)dly_eff_ms(1, *lo | (uint32_t)*hi << 8, *rt, pp), st = ms / 50;
-                        ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[*rt & 3u] >> pp);
+                        ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[DRATE(*rt)] >> pp);
                         *lo = (uint8_t)ms; *hi = (uint8_t)(ms >> 8);
                     }
                 } else if (page == PG_DLY2) {   /* (RAIN 3) DELAY 2 */
