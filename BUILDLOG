@@ -1,0 +1,7 @@
+loader: image 10488 B at 0x1c0a800, bss end 0x1c0ff50
+loader: ota.bin 9081 B
+  ok    .ram_text: 925 insns, no calls
+  ok    image 184952 B of 581564; RAM .data+.bss 82704 B of 98304; pool 314560 B of 344064
+  ok    register access: hal/ only (src/, loader/ clean)
+  FAIL  reference to ROM address 0xffc0ffcf
+build: checks failed

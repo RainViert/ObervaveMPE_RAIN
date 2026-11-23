@@ -1,0 +1,12 @@
+crt0.o
+data.bin
+fm1_cpu1.o
+fm1_isr.o
+fm1_vec.o
+loader
+obervave.bin
+obervave.dis
+obervave.elf
+obervave.o
+ramtext.bin
+text.bin
