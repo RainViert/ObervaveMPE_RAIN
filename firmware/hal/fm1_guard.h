@@ -88,6 +88,22 @@ static void fm1_guard_enable(uint32_t which)
 /* the PC limits apply to the second core too, and it starts in the chip's ROM (found by Melodee's
  * dual-core work: DBG bit 10, c1_pc_limit_err_r): open them while it starts, then
  * fm1_guard_enable(FM1_GUARD_PC) again (X0X, hal/fm1_guard.h) */
+/* (RAIN 17.1) the bus-invalid traps off / back on around the second core's start: on OberVave's FM-1 the start
+ * raised DBG_MSG bit 4 (AXI read) on core 0 while it waited for core 1 to report in */
+static void fm1_guard_bus_pause(void)
+{
+    fm1__dbg_unlock();
+    FM1_DBG_EN &= ~((0x3Fu << 16) | (0x3u << 4));
+    fm1__dbg_lock();
+}
+static void fm1_guard_bus_resume(void)
+{
+    fm1__dbg_unlock();
+    FM1_DBG_MSG_CLR = (0x3Fu << 16) | (0x3u << 4);
+    FM1_DBG_EN |= (0x3Fu << 16) | (0x3u << 4);
+    fm1__dbg_lock();
+}
+
 static void fm1_guard_pc_open(void)
 {
     fm1__dbg_unlock();

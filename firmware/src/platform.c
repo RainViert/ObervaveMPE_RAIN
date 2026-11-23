@@ -508,8 +508,14 @@ static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x
 static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
 static void cpu1_boot(void)
 {
+    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; return; }   /* (RAIN 17.1) */
+    fm1_c1_bar.magic = FM1_C1_BAR_MAGIC;        /* (RAIN 17.1) 2 = starting: a crash or reset in the start leaves it, the next
+                                                 * boot plays on one core (power-off clears it; fm1_cpu1_start refuses only 1) */
+    fm1_c1_bar.barred = 2;
     fm1_guard_pc_open();                        /* (it boots through the chip's ROM: the PC limits open while it starts) */
-    if (fm1_cpu1_start() != 0) { fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; return; }
+    fm1_guard_bus_pause();                      /* (RAIN 17.1) */
+    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; return; }
+    fm1_guard_bus_resume();
     fm1_guard_enable(FM1_GUARD_PC);
     c1_test_out = 0;
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
@@ -518,6 +524,7 @@ static void cpu1_boot(void)
         return;
     }
     c1_state = C1_OK;
+    fm1_c1_bar.barred = 0;                      /* (RAIN 17.1) passed */
 }
 static int cpu1_on(void) { return c1_state == C1_OK && fm1_c1_on; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { return cpu1_on() ? fm1_cpu1_run(fn, arg) : 0; }
