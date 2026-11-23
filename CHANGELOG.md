@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain23 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- The mark "the second core's start went wrong" is read once and cleared, and a start that only got no answer
+  leaves none: the RAM kept rain21's through the update and a short power-off, so rain22 said 1C-1 (crashed
+  before) without trying.
+
 ## 3.5-rain22 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.
