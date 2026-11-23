@@ -95,7 +95,9 @@ static dly_t dly1 = {&dl}, dly2 = {&dr};
 static line_t ppl, ppr;                         /* (RAIN 4) the halves of DELAY 1's line, for the ping-pong */
 static volatile uint32_t ctl_dly_pp;
 static uint32_t fx_has_d1 = 1, fx_has_d2 = 1;   /* (RAIN 5) a track sends into it (the engine sets them per block) */
-static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix = 100, ctl_d2_sh, ctl_d2_ms;
+static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix, ctl_d2_sh, ctl_d2_ms;   /* (mix 0 until the
+                                                 * settings: the sound starts before fx_init, so must every delay) */
+static uint32_t fx_ready;                       /* (RAIN 5) fx_init done: the lines exist (rain4 crashed at boot without it) */
 #if REV_DIV == 2u
 static uint32_t fx_odd;
 #endif
@@ -112,11 +114,13 @@ static void fx_init(void)
     dly1.cur = dly1.time = dly2.cur = dly2.time = 11025 << 16;
     ppl.b = dl.b; ppl.len = DLY_MAX / 2u; ppl.w = 0;
     ppr.b = dl.b + DLY_MAX / 2u; ppr.len = DLY_MAX / 2u; ppr.w = 0;
+    fx_ready = 1;
 }
 
 static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter, uint32_t pp, uint32_t fed)
 {
     uint32_t samples, mx = (pp ? DLY_MAX / 2u : DLY_MAX) - 4u;
+    if (!fx_ready) { d->active = 0; return; }   /* (RAIN 5) no line yet */
     d->mix = (mv * 180) >> 7;                   /* wet up to 0.7 of the dry (Q8) */
     d->fb = fbv * 250;                          /* up to 0.97 */
     d->tk = clampi(((tv * tv) >> 6) + 8, 8, 256);
@@ -398,7 +402,7 @@ static inline __attribute__((always_inline)) void dly_run_pp(dly_t *d, int32_t i
 
 static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const int32_t *ds2, const int32_t *rs, uint32_t n)
 {
-    uint32_t i, do_d1 = dly1.active != 0, do_d2 = dly2.active != 0, do_rev = rev_active != 0;
+    uint32_t i, do_d1 = dly1.active != 0 && fx_ready, do_d2 = dly2.active != 0 && fx_ready, do_rev = rev_active != 0;
     int32_t cm = cho_mix, rm = rev_mix;
     for (i = 0; i < n; i++) {
         int32_t l = out[2u * i], r = out[2u * i + 1u];

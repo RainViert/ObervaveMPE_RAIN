@@ -10,6 +10,8 @@ A personal variant (RainViert/obervave), not an official OberVave release.
 - **The delays' settings are saved with MEMORY's slot**, as the other effects: DELAY + (RATE, MODE, TIME, STEREO),
   DELAY 2, DELAY 2 + and the mixer's SEND DELAY 2. SAVE, SAVE keeps them, LOAD brings them back. Slots saved before
   still load (with the delays as they are).
+- **Fixed: rain4 crashed right at power-on.** The sound starts before the effects' lines exist; DELAY 2 had a
+  MIX from the start and read a line not made yet. No delay runs now before the effects are set up.
 - A delay no track sends into rests (less CPU time).
 - The crash screen shows three more numbers (the cause bits and the stack pointer), for finding a crash.
 
