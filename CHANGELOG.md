@@ -3,6 +3,13 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain8 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- The screen says which one it is: **RAIN** under the logo, "OBERVAVE RAIN" on the crash and rescue screens.
+- `fmhub.json` and screenshots (`docs/rain/`) for the Firmware Hub.
+
 ## 3.5-rain7 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

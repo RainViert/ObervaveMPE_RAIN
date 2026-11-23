@@ -166,6 +166,7 @@ static void ui_header(uint32_t prog, const uint8_t *name, uint32_t edited, const
     cv_text(66, 4, &FONT_S, n, trk ? c : C_CREAM);
     cv_text(54, 22, &FONT_S, tags, C_DIMT);
     draw_logo_small(240 - 4 - text_w(&FONT_S, "OBERVAVE"), 4);
+    cv_text(240 - 4 - text_w(&FONT_S, "RAIN"), 24, &FONT_S, "RAIN", C_TRKC[0]);   /* (RAIN) the variant's name */
     cv_rect(0, 42, 240, 1, C_RULE);
     cv_blit(0, 0);
 }
