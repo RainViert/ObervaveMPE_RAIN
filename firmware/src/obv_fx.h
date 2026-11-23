@@ -80,6 +80,7 @@ static uint32_t rev_pre_n = 1, dly_active, rev_active;
  * side in the same memory, the repeats darker each step). 2^sh samples are averaged into an entry; the output glides
  * between two entries. Main loop writes ctl_dly_sh, the ISR takes it (the lines cleared: no old echoes at the new speed) */
 static volatile uint32_t ctl_dly_sh;
+static volatile uint32_t ctl_dly_ms;            /* (RAIN 2) 0: the note value of the tempo; else the time in ms */
 static uint32_t dly_sh, dly_n;                  /* the rate in use; samples into the current entry */
 static int32_t dly_acc, dly_y0l, dly_y0r, dly_y1l, dly_y1r;
 #if REV_DIV == 2u
@@ -126,7 +127,8 @@ static void fx_block(const patch_t *p, uint32_t quarter)
         dly_n = 0; dly_acc = dly_lpl = dly_lpr = dly_y0l = dly_y0r = dly_y1l = dly_y1r = 0;
         dly_cur = -1;                           /* (below: straight to the time, the lines are empty: no tape slew) */
     }
-    samples = (quarter * DDIV_NUM[div] / DDIV_DEN[div]) >> dly_sh;   /* (RAIN) in the line's entries */
+    samples = ctl_dly_ms ? (ctl_dly_ms * (FS / 100u) / 10u) >> dly_sh   /* (RAIN 2) a time of its own */
+                         : (quarter * DDIV_NUM[div] / DDIV_DEN[div]) >> dly_sh;   /* (RAIN) in the line's entries */
     if (samples > DLY_MAX - 4u) samples = DLY_MAX - 4u;
     if (samples < 64u) samples = 64u;
     dly_time = (int32_t)(samples << 16);

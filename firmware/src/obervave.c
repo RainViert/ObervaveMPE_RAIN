@@ -62,7 +62,12 @@ static struct {
                                                  * pressure and slide: MD_* and 0..127 */
     uint8_t ch_trk[NTRK - 1u];                  /* (RAIN) tracks B, C, D: their own MIDI channel 1..16, 0 = as before */
     uint8_t dly_rate, rain_ok;                  /* (RAIN) the delay's RATE 0 FULL .. 3 1/8; ok: RAIN_OK */
+    uint8_t dly_mode, dly_ms_lo, dly_ms_hi, rain2_ok;   /* (RAIN 2) the delay's time: 0 SYNC (the note value), 1 TIME
+                                                 * (dly_ms 10 .. 5940 ms, at most what the RATE holds); ok: RAIN2_OK */
 } set;
+#define RAIN2_OK 0x5Bu
+#define DLY_MS (set.dly_ms_lo | (uint32_t)set.dly_ms_hi << 8)
+static const uint16_t DR_MAX_MS[4] = {740, 1480, 2970, 5940};   /* (RAIN 2) what each RATE's lines hold */
 #define RAIN_OK 0x7Au
 #define NMPE 6u
 static const uint8_t MPE_RANGE[NMPE] = {0, 2, 12, 24, 48, 96};
@@ -74,6 +79,10 @@ static void rain_apply(void)                    /* (RAIN) the settings into the 
     ctl_mpe_pdst = set.mpe_pdst % NMD; ctl_mpe_pamt = set.mpe_pamt & 127u;
     ctl_mpe_sdst = set.mpe_sdst % NMD; ctl_mpe_samt = set.mpe_samt & 127u;
     ctl_dly_sh = set.dly_rate & 3u;
+    {
+        uint32_t ms = DLY_MS, mx = DR_MAX_MS[set.dly_rate & 3u];
+        ctl_dly_ms = set.dly_mode ? (ms > mx ? mx : ms < 10u ? 10u : ms) : 0u;
+    }
 }
 #define MIDI_OUT_CH (set.midi_ch ? (set.midi_ch - 1u + seq_trk % NTRK) & 15u : 0u)   /* the keys go out on the track's MIDI channel (OMNI: 1) */
 #define RQT_OK 0xA5u
@@ -941,11 +950,18 @@ static void draw_page(void)
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
         } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
-            static const char *const RL[3][4] = {{"RATE", "", "", ""}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"}};
+            static const char *const RL[3][4] = {{"RATE", "MODE", "TIME", ""}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"}};
             uint32_t r = page == PG_DELAY2 ? 0u : page == PG_MPE ? 1u : 2u, v = 0, mx = 0;
             k[i].label = RL[r][i];
-            k[i].present = r || !i;
+            k[i].present = r || i < 2 || (i == 2 && set.dly_mode);
             if (r == 0u && !i) { v = set.dly_rate & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
+            else if (r == 0u && i == 1) { v = set.dly_mode ? 1u : 0u; mx = 1; scat(k[i].value, v ? "TIME" : "SYNC"); }
+            else if (r == 0u && i == 2) {        /* (RAIN 2) the time as it sounds (the RATE's most at most) */
+                uint32_t ms = ctl_dly_ms ? ctl_dly_ms : DLY_MS;
+                if (ms < 1000u) { fmt_u(k[i].value, ms); scat(k[i].value, "ms"); }
+                else { char t[8]; fmt_u(k[i].value, ms / 1000u); scat(k[i].value, "."); fmt_u(t, (ms % 1000u) / 10u + 100u); scat(k[i].value, t + 1); scat(k[i].value, "s"); }
+                v = ms * 127u / 5940u; mx = 127;
+            }
             else if (r == 1u && i == 0) { v = set.mpe % NMPE; mx = NMPE - 1u; if (v) { fmt_u(k[i].value, MPE_RANGE[v]); scat(k[i].value, " ST"); } else scat(k[i].value, "OFF"); }
             else if (r == 1u && (i == 1 || i == 3)) { v = (i == 1 ? set.mpe_pdst : set.mpe_sdst) % NMD; mx = NMD - 1u; scat(k[i].value, MD_NAME[v]); }
             else if ((r == 1u && i == 2) || (r == 2u && i == 0)) { v = (r == 1u ? set.mpe_pamt : set.mpe_samt) & 127u; mx = 127; fmt_u(k[i].value, (v * 100u + 63u) / 127u); scat(k[i].value, "%"); }
@@ -2170,8 +2186,12 @@ static void app_main(void)
         set.version = 0;
         set_rc = settings_load(&set, sizeof set);
         if (set_rc) {                           /* (RAIN) OberVave's own settings, saved without the RAIN bytes: kept */
+            set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.dly_mode - (uint8_t *)&set));   /* (RAIN 1's) */
+            set.rain2_ok = 0;
+        }
+        if (set_rc) {
             set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.mpe - (uint8_t *)&set));
-            set.rain_ok = 0;
+            set.rain_ok = set.rain2_ok = 0;
         }
         if (set_rc || set.version != SET_VERSION) {
             static set_v2_t old __attribute__((section(".pool")));
@@ -2216,6 +2236,7 @@ static void app_main(void)
         set.mpe = 0; set.mpe_pdst = MD_CUT; set.mpe_pamt = 40; set.mpe_sdst = MD_CUT; set.mpe_samt = 30;
         set.ch_trk[0] = set.ch_trk[1] = set.ch_trk[2] = 0; set.dly_rate = 0; set.rain_ok = RAIN_OK;
     }
+    if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
     rain_apply();
     if (set.prog >= NPROG) set.prog = 0;
     if (set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
@@ -2497,7 +2518,15 @@ static void app_main(void)
                 set_dirty = 1; set_t = fm1_ms;
             } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
                 int32_t s1 = e > 0 ? 1 : -1;
-                if (page == PG_DELAY2) { if (k == 0) set.dly_rate = (uint8_t)clampi((int32_t)(set.dly_rate & 3u) + s1, 0, 3); }
+                if (page == PG_DELAY2) {
+                    if (k == 0) set.dly_rate = (uint8_t)clampi((int32_t)(set.dly_rate & 3u) + s1, 0, 3);
+                    else if (k == 1) set.dly_mode = (uint8_t)clampi((int32_t)(set.dly_mode ? 1 : 0) + s1, 0, 1);
+                    else if (k == 2 && set.dly_mode) {   /* (RAIN 2) about 2 % a click, 1 ms at the least */
+                        int32_t ms = (int32_t)(ctl_dly_ms ? ctl_dly_ms : DLY_MS), st = ms / 50;
+                        ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[set.dly_rate & 3u]);
+                        set.dly_ms_lo = (uint8_t)ms; set.dly_ms_hi = (uint8_t)(ms >> 8);
+                    }
+                }
                 else if (page == PG_MPE) {
                     if (k == 0) set.mpe = (uint8_t)clampi((int32_t)(set.mpe % NMPE) + s1, 0, NMPE - 1);
                     else if (k == 1) set.mpe_pdst = (uint8_t)clampi((int32_t)(set.mpe_pdst % NMD) + s1, 0, NMD - 1);

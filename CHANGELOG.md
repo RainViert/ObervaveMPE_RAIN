@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain3 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **Delay in milliseconds** (FX → **DELAY +**): MODE SYNC (as before, the note value of DELAY's TIME at the tempo) or
+  TIME, then TIME sets the delay freely, 10 ms up to what the RATE holds (FULL 740 ms, 1/2 1.48 s, 1/4 2.97 s, 1/8
+  5.94 s), about 2 % a click. Kept with the settings; 3.5-rain1's settings stay.
+
 ## 3.5-rain1 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.
