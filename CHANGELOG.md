@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain10 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The matrix belongs to the sound**: MEMORY's SOUND keeps the track's matrix with the program, and a program loaded
+  (PRESETS, MIDI program change) brings its matrix (the factory programs and those saved before: none). Changing the
+  matrix marks the sound changed (`*`). The 99 matrices live in the settings sector (2376 B), the programs' own
+  sectors are full.
+
 ## 3.5-rain9 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

@@ -69,7 +69,13 @@ static struct {
     uint8_t d1_pp, rain4_ok;                    /* (RAIN 4) DELAY 1: 0 mono, 1 ping-pong (half the time) */
     mm_slot_t mm[NTRK][MM_N];                   /* (RAIN 9) the modulation matrix per track (MEMORY's slots keep it too) */
     uint8_t mm_slot, rain9_ok;                  /* the slot the MATRIX page shows */
+    mm_slot_t mm_prog[NPROG][MM_N];             /* (RAIN 10) each program's matrix: a SOUND saved keeps it, a program
+                                                 * loaded brings it (the factory ones: none). Here, not in the programs'
+                                                 * sectors: they are full (2376 B of this sector's 4084) */
+    uint8_t rain10_ok;
 } set;
+#define RAIN10_OK 0xA1u
+_Static_assert(sizeof set <= SETTINGS_MAX, "the settings outgrew their sector");
 #define RAIN9_OK 0x9Au
 #define RAIN4_OK 0x4Eu
 #define RAIN3_OK 0x3Du
@@ -306,6 +312,8 @@ static void trk_load(uint32_t t, uint32_t n)    /* track t: program n */
     trk_edited[t] = 0;
     set.tprog[t] = (uint8_t)n;
     if (!t) set.prog = (uint8_t)n;
+    memcpy(set.mm[t], set.mm_prog[n], sizeof set.mm[t]);   /* (RAIN 10) the program's matrix comes with it */
+    rain_apply();
     set_dirty = 1; set_t = fm1_ms;
 }
 
@@ -1594,10 +1602,15 @@ static void mem_do(void)
         scat(msg, "REPLACE PROGRAM "); fmt_u(msg + slen(msg), p + 1u); scat(msg, "?");
         if (!mem_ask(p != trk_prog[t], msg)) break;
         prog_put(p, &sp);
+        memcpy(set.mm_prog[p], set.mm[t], sizeof set.mm_prog[p]);   /* (RAIN 10) the matrix goes with the sound */
         trk_prog[t] = p; trk_edited[t] = 0; set.tprog[t] = (uint8_t)p; if (!t) set.prog = (uint8_t)p;
         set_dirty = 1;
         for (u = 0; u < NTRK; u++)              /* (another track on the same program, unchanged: it hears it too) */
-            if (u != t && trk_prog[u] == p && !trk_edited[u]) { live_p[u] = sp; if (!u) fx_keep(&live_p[0]); }
+            if (u != t && trk_prog[u] == p && !trk_edited[u]) {
+                live_p[u] = sp; if (!u) fx_keep(&live_p[0]);
+                memcpy(set.mm[u], set.mm[t], sizeof set.mm[u]);
+            }
+        rain_apply();
         msg[0] = 0; scat(msg, "SOUND IN PROGRAM "); fmt_u(msg + slen(msg), p + 1u);
         say(msg);
     }
@@ -2316,9 +2329,9 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[6] = {sizeof set, SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[7] = {sizeof set, SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
-            for (z = 0; z < 6u; z++) {
+            for (z = 0; z < 7u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
                 if (!set_rc) { memset((uint8_t *)&set + SZ[z], 0, sizeof set - SZ[z]); break; }
             }
@@ -2367,6 +2380,7 @@ static void app_main(void)
         set.ch_trk[0] = set.ch_trk[1] = set.ch_trk[2] = 0; set.dly_rate = 0; set.rain_ok = RAIN_OK;
     }
     if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
+    if (set.rain10_ok != RAIN10_OK) { memset(set.mm_prog, 0, sizeof set.mm_prog); set.rain10_ok = RAIN10_OK; }   /* (RAIN 10) */
     if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
     if (set.rain4_ok != RAIN4_OK) { set.d1_pp = 0; set.rain4_ok = RAIN4_OK; }   /* (RAIN 4) mono, as rain4 */
     if (set.rain3_ok != RAIN3_OK) {             /* (RAIN 3) DELAY 2: a dotted eighth, no sends yet */
@@ -2663,6 +2677,7 @@ static void app_main(void)
                 else if (k == 1) m->src = (uint8_t)clampi((int32_t)(m->src % NMXS) + s1, 0, NMXS - 1);
                 else if (k == 2) m->dst = (uint8_t)clampi((int32_t)(m->dst % NMXD) + s1, 0, NMXD - 1);
                 else m->amt = (int8_t)clampi((int32_t)m->amt + e, -100, 100);
+                if (k) { trk_edited[seq_trk % NTRK] = 1; dirty_hdr = 1; }   /* (RAIN 10: the sound is changed, * in the header) */
                 rain_apply(); set_dirty = 1; set_t = fm1_ms; dirty_steps = 1;
             } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
                 int32_t s1 = e > 0 ? 1 : -1;
