@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain6 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The delays no longer scratch with much feedback**: their feedback saturates softly (a knee at -2.5 dB, tanh
+  above, as a tape echo) instead of clipping hard, and so does the sum after the effects. The mono delays' return is
+  3 dB lower (it is on both sides).
+
 ## 3.5-rain5 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

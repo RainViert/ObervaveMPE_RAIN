@@ -33,6 +33,15 @@ static int16_t fx_mem[FX_MEM_N] __attribute__((section(".pool")));
 static uint32_t fx_used;
 
 static inline int32_t sat16(int32_t v) { return v > 32767 ? 32767 : v < -32767 ? -32767 : v; }
+/* (RAIN 6) a soft knee instead of the hard rail: linear to +-24576 (-2.5 dB), above it rounds off by tanh towards
+ * +-32767, as a tape echo saturates (the delays' feedback and the effects' sum no longer scratch when they run hot) */
+static inline __attribute__((always_inline)) int32_t soft16(int32_t v)
+{
+    int32_t a = v < 0 ? -v : v, y;
+    if (a <= 24576) return v;
+    y = 24576 + softclip((a - 24576) * 4) / 4;
+    return v < 0 ? -y : y;
+}
 static void line_init(line_t *l, uint32_t len) { l->b = fx_mem + fx_used; l->len = len; l->w = 0; fx_used += len; }
 static inline __attribute__((always_inline)) int32_t line_read(const line_t *l, uint32_t back)   /* 1 <= back <= len */
 {
@@ -336,7 +345,7 @@ static inline __attribute__((always_inline)) int32_t dly_run(dly_t *d, int32_t i
         else if (d->cur > d->time) { d->cur -= 1 << 15; if (d->cur < d->time) d->cur = d->time; }
         w = line_read_q16(d->ln, d->cur);
         d->lp += ((w - d->lp) * d->tk) >> 8;
-        line_write(d->ln, in + ((d->lp * d->fb) >> 15));
+        line_write(d->ln, soft16(in + ((d->lp * d->fb) >> 15)));
     } else {
         uint32_t m = (1u << d->sh) - 1u;
         d->acc += in;
@@ -348,14 +357,14 @@ static inline __attribute__((always_inline)) int32_t dly_run(dly_t *d, int32_t i
             if (d->cur < (2 << 16)) d->cur = 2 << 16;
             w = line_read_q16(d->ln, d->cur);
             d->lp += ((w - d->lp) * tk) >> 8;
-            line_write(d->ln, (d->acc >> d->sh) + ((d->lp * d->fb) >> 15));
+            line_write(d->ln, soft16((d->acc >> d->sh) + ((d->lp * d->fb) >> 15)));
             d->acc = 0;
             d->y0 = d->y1; d->y1 = w;
         }
         w = d->y0 + (((d->y1 - d->y0) * (int32_t)((d->n + 1u) & m)) >> d->sh);
         d->n++;
     }
-    return (w * d->mix) >> 8;
+    return (((w * d->mix) >> 8) * 23170) >> 15;   /* (RAIN 6: -3 dB, the mono return is on both sides) */
 }
 
 /* (RAIN 4) DELAY 1 as the ping-pong it was: the input enters left, the feedback crosses; on the halves of its line */
@@ -369,8 +378,8 @@ static inline __attribute__((always_inline)) void dly_run_pp(dly_t *d, int32_t i
         wr = line_read_q16(&ppr, d->cur);
         d->lp += ((wr - d->lp) * d->tk) >> 8;
         d->lpr += ((wl - d->lpr) * d->tk) >> 8;
-        line_write(&ppl, in + ((d->lp * d->fb) >> 15));
-        line_write(&ppr, (d->lpr * d->fb) >> 15);
+        line_write(&ppl, soft16(in + ((d->lp * d->fb) >> 15)));
+        line_write(&ppr, soft16((d->lpr * d->fb) >> 15));
     } else {
         uint32_t m = (1u << d->sh) - 1u;
         int32_t f;
@@ -385,8 +394,8 @@ static inline __attribute__((always_inline)) void dly_run_pp(dly_t *d, int32_t i
             wr = line_read_q16(&ppr, d->cur);
             d->lp += ((wr - d->lp) * tk) >> 8;
             d->lpr += ((wl - d->lpr) * tk) >> 8;
-            line_write(&ppl, (d->acc >> d->sh) + ((d->lp * d->fb) >> 15));
-            line_write(&ppr, (d->lpr * d->fb) >> 15);
+            line_write(&ppl, soft16((d->acc >> d->sh) + ((d->lp * d->fb) >> 15)));
+            line_write(&ppr, soft16((d->lpr * d->fb) >> 15));
             d->acc = 0;
             d->y0 = d->y1; d->y1 = wl;
             d->y0r = d->y1r; d->y1r = wr;
@@ -434,7 +443,7 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             r += (rv_yr * rm) >> 8;
 #endif
         }
-        out[2u * i] = sat16(l);
-        out[2u * i + 1u] = sat16(r);
+        out[2u * i] = sat16(soft16(l));     /* (RAIN 6: soft, was the hard rail) */
+        out[2u * i + 1u] = sat16(soft16(r));
     }
 }
