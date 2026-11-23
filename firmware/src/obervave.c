@@ -80,7 +80,7 @@ static struct {
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
-static uint8_t c1_why;                          /* (RAIN 18.1) why the second core failed this power-on (0: it did not) */
+static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
 static int obv_cores_wanted(void)               /* (RAIN 18) at power-on, before the app: the settings as saved (an older
                                                  * store, a missing or broken one: one core) */
@@ -2454,7 +2454,7 @@ static void app_main(void)
             set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1;
             say(m);
         }
-        if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 18.1) kept for the CHANNELS page; handled once: SELECT can try
+        if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 19) kept for the CHANNELS page; handled once: SELECT can try
                                                  * again at the next power-on */
         cpu1_bad = 0;
         if (mirror_poll()) {                    /* FM-1 Mirror opened (or rows were lost): everything drawn again */
