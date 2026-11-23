@@ -80,6 +80,7 @@ static struct {
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
+static uint8_t c1_why;                          /* (RAIN 18.1) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
 static int obv_cores_wanted(void)               /* (RAIN 18) at power-on, before the app: the settings as saved (an older
                                                  * store, a missing or broken one: one core) */
@@ -1136,7 +1137,7 @@ static void draw_page(void)
         {
             static char cpu[24];                /* the GLOBAL page: the render time of an audio half (budget 5800 us), SYNC */
             cpu[0] = 0; fmt_u(cpu, ui_render_us); scat(cpu, "us"); scat(cpu, set.sync_int ? " INT" : ctl_ext_quarter ? " CLK" : " AUTO"); scat(cpu, cpu1_on() ? " 2C" : " 1C");   /* (RAIN 17) the cores */
-            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : "1C") : 0);
+            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : c1_why == 1 ? "1C-1" : c1_why == 2 ? "1C-2" : c1_why == 3 ? "1C-3" : c1_why == 4 ? "1C-4" : "1C") : 0);
         }
     }
 }
@@ -2447,9 +2448,15 @@ static void app_main(void)
         int32_t e;
         if (cpu1_bad && set.cores2) {          /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
                                                  * late): off for good, saved; the user may switch it on again */
+            static const char *const WHY[5] = {"", "CRASHED BEFORE", "NO ANSWER", "WRONG RESULT", "TOO LATE"};
+            static char m[40];
+            m[0] = 0; scat(m, "2 CORES OFF: "); scat(m, WHY[cpu1_bad < 5u ? cpu1_bad : 0]);
             set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1;
-            say("2 CORES OFF: CORE 2 FAILED");
+            say(m);
         }
+        if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 18.1) kept for the CHANNELS page; handled once: SELECT can try
+                                                 * again at the next power-on */
+        cpu1_bad = 0;
         if (mirror_poll()) {                    /* FM-1 Mirror opened (or rows were lost): everything drawn again */
             lcd_fill(0, 0, 240, 240, C_PANEL);
             dirty_hdr = dirty_page = dirty_steps = dirty_tags = 1; hints_key = leds_q = 0xFFFFFFFFu; scope_state = 1; t_scope = 0;

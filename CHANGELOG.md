@@ -3,7 +3,31 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
-## 3.5-rain17 – 2026-11-23
+## 3.5-rain18.1 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- After the second core failed, SELECT on the CHANNELS page can switch it on again at once (rain18 turned it off
+  again until the next power-on). The page says why it failed: 1C-1 its start crashed before, 1C-2 it never
+  answered, 1C-3 its self-test came back wrong, 1C-4 it was late; the message at the start says it in words.
+
+## 3.5-rain18 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+rain17 crashed while starting the second core on the FM-1 it was made for, and the crash screen then stayed for half
+an hour instead of restarting. rain18 makes that impossible to get stuck in:
+
+- **One core by default.** Everything plays as in rain16, bit for bit. The second core is a choice: on the MPE +
+  CHANNELS page, SELECT switches 1C / 2C, from the next power-on (the page's title shows it).
+- **A failed second core switches itself off for good.** If its start crashes, or it answers wrong or late, the next
+  start is on one core and the setting is saved as off ("2 CORES OFF: CORE 2 FAILED").
+- **OCT+ held at power-on**: one core this time, whatever the setting.
+- **The crash screen always ends in a restart**, within seconds: its wait no longer trusts a timer the second core's
+  start can stop, the second core is held first, and the reset has the watchdog behind it.
+- The bus traps paused around the second core's start (17.1), built without the constant the build check refused.
+
+## 3.5-rain17 – 2026-11-23 (withdrawn: crashed at power-on on two cores)
 
 A personal variant (RainViert/obervave), not an official OberVave release.
 
