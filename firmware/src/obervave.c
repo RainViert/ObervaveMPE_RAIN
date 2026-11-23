@@ -80,7 +80,7 @@ static struct {
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
-static char c1_text[40];                        /* (RAIN 22) the last failure in words, shown again on SELECT */
+static char c1_text[40], c1_text2[40] = "SECOND CORE";                        /* (RAIN 22) the last failure in words, shown again on SELECT */
 static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
 static int obv_cores_wanted(void)               /* (RAIN 18) at power-on, before the app: the settings as saved (an older
@@ -2461,6 +2461,23 @@ static void app_main(void)
                 for (q = 0; q < 8u; q++) m[n++] = HX[c1_msg >> (28u - 4u * q) & 15u];
                 m[n++] = ' '; m[n++] = (char)('0' + c1_reached % 10u); m[n] = 0;
             }
+#ifndef OBV_HOST
+            {   /* (RAIN 24) line 2: the last crash record (.noinit, it survives the reset) and why the chip reset:
+                 * PC, vector, E = C1 if core 1 faulted, R = the reset reason (bit 0 power-on, 2 watchdog, 6 soft) */
+                static const char HX[] = "0123456789ABCDEF";
+                char *t = c1_text2;
+                uint32_t q, n = 0, v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.pc : 0u;
+                t[n++] = 'P'; t[n++] = 'C';
+                for (q = 0; q < 8u; q++) t[n++] = HX[v >> (28u - 4u * q) & 15u];
+                t[n++] = ' '; t[n++] = 'V'; t[n++] = HX[(fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.vec : 0u) & 15u];
+                v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.emu : 0u;
+                t[n++] = ' '; t[n++] = 'E'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
+                v = fm1_boot.p3_rst;
+                t[n++] = ' '; t[n++] = 'R'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
+                t[n++] = ' '; t[n++] = 'T'; t[n++] = (char)('0' + c1_tries % 10u);
+                t[n] = 0;
+            }
+#endif
             if (set.cores2) { set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1; say(m); }
         }
         if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 19) kept for the CHANNELS page; handled once: SELECT can try
@@ -2948,7 +2965,7 @@ static void app_main(void)
 #endif
             if (seq_shown() || rec || rec_down || layer) draw_hints();   /* the sequencer's hints instead of the voice LEDs */
             else if (page == PG_MPE2 && c1_why) {   /* (RAIN 22) why the second core failed, instead of the voice LEDs */
-                if (leds_q != 0xC1C1C1C1u) { leds_q = 0xC1C1C1C1u; ui_hints(c1_text, "SECOND CORE", C_RED); }
+                if (leds_q != 0xC1C1C1C1u) { leds_q = 0xC1C1C1C1u; ui_hints(c1_text, c1_text2, C_RED); }
             } else if (q != leds_q) { leds_q = q; draw_leds(); }
             if (page == PG_GLOBAL && fm1_ms - t_page >= 250u) dirty_page = 1;
         }
