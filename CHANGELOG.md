@@ -3,6 +3,19 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain1 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **MPE on track A** (GLO → **MPE**): MPE OFF or the members' bend range (2, 12, 24, 48, 96 semitones). Channel 1 is the
+  master (track A's bend, CCs, pedal as ever), channels 2–16 each carry one note with its own pitch bend, pressure and
+  slide (CC 74), followed through a ~3 ms glide. PRESS> and SLIDE> send pressure and slide to LEVEL, CUTOFF, VIBRATO or
+  PWM, each with its amount (PR AMT, SL AMT).
+- **Own MIDI channels for tracks B, C, D** (GLO → **MPE + CHANNELS**: CH B, CH C, CH D; AUTO = as before).
+- **Envelopes to 60 s**: the filter and amp envelopes' times as before up to 3.9 s, then on to 60 s.
+- **Delay RATE** (FX → **DELAY +**): FULL (743 ms a side, as before), 1/2 (1.5 s), 1/4 (3 s), 1/8 (6 s) in the same
+  memory, the repeats darker at each step; the delay TIME gets 1/2. and 1/1.
+
 ## 3.5.2 – 2026-11-13
 
 - **Locked to an external MIDI clock:** with a master that sends START and clock (SYNC AUTO), the sequencer, the

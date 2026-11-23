@@ -76,6 +76,12 @@ static int32_t dly_lpl, dly_lpr, rv_lp_in, rv_lpl, rv_lpr, rv_yl, rv_yr;
 static int32_t rv_hold;
 #endif
 static uint32_t rev_pre_n = 1, dly_active, rev_active;
+/* (RAIN) the delay's RATE: the lines run at the full rate (0: 743 ms a side) or at 1/2, 1/4, 1/8 of it (1.5, 3, 6 s a
+ * side in the same memory, the repeats darker each step). 2^sh samples are averaged into an entry; the output glides
+ * between two entries. Main loop writes ctl_dly_sh, the ISR takes it (the lines cleared: no old echoes at the new speed) */
+static volatile uint32_t ctl_dly_sh;
+static uint32_t dly_sh, dly_n;                  /* the rate in use; samples into the current entry */
+static int32_t dly_acc, dly_y0l, dly_y0r, dly_y1l, dly_y1r;
 #if REV_DIV == 2u
 static uint32_t fx_odd;
 #endif
@@ -113,10 +119,18 @@ static void fx_block(const patch_t *p, uint32_t quarter)
         rev_damp_k = 32768 - (int32_t)r;
     }
     rev_pre_n = 1u + (uint32_t)p->v[P_REV_PRE] * (41u / REV_DIV);
-    samples = quarter * DDIV_NUM[div] / DDIV_DEN[div];
+    if (ctl_dly_sh != dly_sh) {                 /* (RAIN) a new RATE: from silence */
+        uint32_t i;
+        dly_sh = ctl_dly_sh & 3u;
+        for (i = 0; i < DLY_MAX; i++) dl.b[i] = dr.b[i] = 0;
+        dly_n = 0; dly_acc = dly_lpl = dly_lpr = dly_y0l = dly_y0r = dly_y1l = dly_y1r = 0;
+        dly_cur = -1;                           /* (below: straight to the time, the lines are empty: no tape slew) */
+    }
+    samples = (quarter * DDIV_NUM[div] / DDIV_DEN[div]) >> dly_sh;   /* (RAIN) in the line's entries */
     if (samples > DLY_MAX - 4u) samples = DLY_MAX - 4u;
     if (samples < 64u) samples = 64u;
     dly_time = (int32_t)(samples << 16);
+    if (dly_cur < 0) dly_cur = dly_time;
     if (dly_mix) dly_active = 12u * FS; else if (dly_active > HALF_FRAMES) dly_active -= HALF_FRAMES; else dly_active = 0;
     if (rev_mix) rev_active = 24u * FS; else if (rev_active > HALF_FRAMES) rev_active -= HALF_FRAMES; else rev_active = 0;
 }
@@ -297,7 +311,7 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             l += (line_read_q16_h(&cho, bl) * cm) >> 8;
             r += (line_read_q16_h(&cho, br) * cm) >> 8;
         }
-        if (do_dly) {                           /* ping-pong: the input enters left, the feedback crosses */
+        if (do_dly && !dly_sh) {                /* ping-pong: the input enters left, the feedback crosses */
             int32_t wl, wr;
             if (dly_cur < dly_time) { dly_cur += 1 << 15; if (dly_cur > dly_time) dly_cur = dly_time; }
             else if (dly_cur > dly_time) { dly_cur -= 1 << 15; if (dly_cur < dly_time) dly_cur = dly_time; }
@@ -309,6 +323,30 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             line_write(&dr, (dly_lpr * dly_fb) >> 15);
             l += (wl * dm) >> 8;
             r += (wr * dm) >> 8;
+        } else if (do_dly) {                    /* (RAIN) the same at 1 / 2^sh of the rate */
+            uint32_t m = (1u << dly_sh) - 1u;
+            int32_t f;
+            dly_acc += ds[i];
+            if ((dly_n & m) == m) {             /* an entry: the line steps once */
+                int32_t wl, wr, tk = dly_tone_k << dly_sh;
+                if (tk > 256) tk = 256;         /* (the tone's corner kept, as far as the rate lets it) */
+                if (dly_cur < dly_time) { dly_cur += 1 << 15; if (dly_cur > dly_time) dly_cur = dly_time; }
+                else if (dly_cur > dly_time) { dly_cur -= 1 << 15; if (dly_cur < dly_time) dly_cur = dly_time; }
+                if (dly_cur < (2 << 16)) dly_cur = 2 << 16;
+                wl = line_read_q16(&dl, dly_cur);
+                wr = line_read_q16(&dr, dly_cur);
+                dly_lpl += ((wr - dly_lpl) * tk) >> 8;
+                dly_lpr += ((wl - dly_lpr) * tk) >> 8;
+                line_write(&dl, (dly_acc >> dly_sh) + ((dly_lpl * dly_fb) >> 15));
+                line_write(&dr, (dly_lpr * dly_fb) >> 15);
+                dly_acc = 0;
+                dly_y0l = dly_y1l; dly_y0r = dly_y1r;
+                dly_y1l = wl; dly_y1r = wr;
+            }
+            f = (int32_t)((dly_n + 1u) & m);    /* between the last two entries' outputs (one entry late: smooth) */
+            l += ((dly_y0l + (((dly_y1l - dly_y0l) * f) >> dly_sh)) * dm) >> 8;
+            r += ((dly_y0r + (((dly_y1r - dly_y0r) * f) >> dly_sh)) * dm) >> 8;
+            dly_n++;
         }
         if (do_rev) {
 #if REV_DIV == 2u                               /* half rate: a pair in, the output interpolated between ticks */

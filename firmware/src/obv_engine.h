@@ -38,6 +38,9 @@ typedef struct {
     uint8_t note, vel, gate;                    /* gate: the key (or the arp) holds it */
     uint8_t part;                               /* the track whose sound it is, 0..3 */
     uint8_t grp;                                /* a card of its sound's MONO / UNISON group */
+    uint8_t mch;                                /* (RAIN) MPE: the member channel + 1 its note came on, 0 none */
+    int32_t mbend, mpress, mslide;              /* (RAIN) MPE: its bend (Q4 of -8192..8191), pressure (Q8 0..127),
+                                                 * slide (Q8 -64..63): followed through a one-pole, ~3 ms */
 } voice_t;
 
 /* four sounds, one per track (A's also sets the effects). The main loop writes, the ISR reads. */
@@ -59,7 +62,8 @@ static voice_t vc[NV];
 static uint32_t vseq, rr;                       /* allocation counter, round-robin pointer */
 
 /* main loop -> ISR: note events */
-typedef struct { uint8_t type, note, vel, part; } nev_t;   /* type 1 on, 0 off; part: the track's sound */
+typedef struct { uint8_t type, note, vel, part, ch; } nev_t;   /* type 1 on, 0 off; part: the track's sound; ch: (RAIN) an
+                                                 * MPE member channel + 1, 0 none */
 #define NQ 64u
 static nev_t nq[NQ];
 static volatile uint32_t nq_w, nq_r;
@@ -70,10 +74,31 @@ static void note_event_p(uint32_t part, uint32_t on, uint32_t note, uint32_t vel
     nq[nq_w % NQ].type = (uint8_t)on;
     nq[nq_w % NQ].note = (uint8_t)note;
     nq[nq_w % NQ].vel = (uint8_t)vel;
+    nq[nq_w % NQ].ch = 0;
     RING_PUBLISH();
     nq_w++;
 }
 static void note_event(uint32_t on, uint32_t note, uint32_t vel) { note_event_p(0, on, note, vel); }
+/* (RAIN) MPE: a note on member channel ch (0-based, 1..15) of the MPE sound (track A): its voice follows that channel's
+ * own bend, pressure and slide */
+static volatile int16_t mpe_bend[16];           /* -8192..8191, per channel (main loop writes, ISR reads) */
+static volatile uint8_t mpe_press[16];          /* channel pressure 0..127 */
+static volatile int8_t mpe_slide[16];           /* CC 74 - 64 */
+static volatile uint32_t ctl_mpe_range;         /* the members' bend range in semitones, 0 = MPE off */
+static volatile uint32_t ctl_mpe_pdst, ctl_mpe_pamt, ctl_mpe_sdst, ctl_mpe_samt;   /* pressure / slide: MD_* and 0..127 */
+enum { MD_OFF, MD_AMP, MD_CUT, MD_VIB, MD_PWM, NMD };
+static uint32_t ev_ch;                          /* (ISR) the event being handled: its MPE channel + 1, else 0 */
+static void note_event_ch(uint32_t part, uint32_t on, uint32_t note, uint32_t vel, uint32_t ch)
+{
+    if (nq_w - nq_r >= NQ) return;
+    nq[nq_w % NQ].part = (uint8_t)part;
+    nq[nq_w % NQ].type = (uint8_t)on;
+    nq[nq_w % NQ].note = (uint8_t)note;
+    nq[nq_w % NQ].vel = (uint8_t)vel;
+    nq[nq_w % NQ].ch = (uint8_t)(ch + 1u);
+    RING_PUBLISH();
+    nq_w++;
+}
 
 /* the controllers (main loop writes) */
 static volatile int32_t ctl_bend;               /* -8192..8191 */
@@ -151,6 +176,12 @@ static void voice_start(voice_t *v, uint32_t part, uint32_t note, uint32_t vel, 
     v->ae.stage = E_ATT;
     v->lfo_blk = 0;
     v->lfo_fade = pv[P_LFO_DELAY] ? 0 : 32767;
+    v->mch = (uint8_t)ev_ch;                    /* (RAIN) MPE: from its channel's values, no sweep from 0 */
+    if (ev_ch) {
+        v->mbend = mpe_bend[(ev_ch - 1u) & 15u] * 16;
+        v->mpress = mpe_press[(ev_ch - 1u) & 15u] * 256;
+        v->mslide = mpe_slide[(ev_ch - 1u) & 15u] * 256;
+    }
     voice_pan(v, pan);
 }
 
@@ -291,7 +322,7 @@ static void voice_release(uint32_t part, uint32_t note, uint32_t from_arp)
         return;
     }
     for (v = 0; v < NV; v++)
-        if (vc[v].gate && vc[v].note == note && vc[v].part == part) vc[v].gate = 0;
+        if (vc[v].gate && vc[v].note == note && vc[v].part == part && (!ev_ch || vc[v].mch == ev_ch)) vc[v].gate = 0;
 }
 
 static void voices_release_all(void)
@@ -514,8 +545,10 @@ static void engine_events(void)
         e = nq[nq_r % NQ];
         p = e.part % NPART;
         nq_r++;
+        ev_ch = e.ch;                           /* (RAIN) MPE: the voice it starts or ends is this channel's */
         if (e.type) ev_note_on(p, e.note, e.vel);
         else ev_note_off(p, e.note);
+        ev_ch = 0;
     }
 }
 
@@ -635,6 +668,7 @@ static void voice_block(voice_t *v, uint32_t card)
     const part_t *g = &pt[v->part];
     const uint8_t *pv = g->p->v;
     int32_t lfo, p8, p1, p2, cut, fenv, tmp, velg, trem, vint = g->vint, vt = (vint * VINT_ENV[card % NCARD]) >> 7, lfo_to, a;
+    int32_t mq_p = 0, mq_s = 0, mpw = 0;      /* (RAIN) MPE: pressure, slide (Q15), their pulse width offset */
     uint32_t ph, glide_k = g->glide_k;
     /* glide */
     if (v->pitch16 != v->target16) {
@@ -665,6 +699,17 @@ static void voice_block(voice_t *v, uint32_t card)
     /* pitch, Q8 semitones */
     p8 = (v->pitch16 >> 8) + g->bend8 + ctl_tune8 + v->det8 + ((VINT_TUNE8[card % NCARD] * vint) >> 7) + ((v->drift * vint) >> 10);
     p8 += (lfo * g->wheel_q * 4) >> 15;         /* the wheel's vibrato */
+    if (v->mch) {                               /* (RAIN) MPE: this note's own bend, pressure and slide */
+        uint32_t c = (v->mch - 1u) & 15u;
+        v->mbend += (mpe_bend[c] * 16 - v->mbend) >> 2;
+        v->mpress += (mpe_press[c] * 256 - v->mpress) >> 2;
+        v->mslide += (mpe_slide[c] * 256 - v->mslide) >> 2;
+        p8 += (int32_t)(((int64_t)v->mbend * (int32_t)ctl_mpe_range * 256) >> 17);
+        mq_p = (v->mpress * 258) >> 8;          /* Q15 0..32766 */
+        mq_s = v->mslide * 2;                   /* Q15 -32768..32766 */
+        if (ctl_mpe_pdst == MD_VIB) p8 += (((lfo * mq_p) >> 15) * (int32_t)ctl_mpe_pamt) >> 13;
+        if (ctl_mpe_sdst == MD_VIB) p8 += (((lfo * (mq_s < 0 ? -mq_s : mq_s)) >> 15) * (int32_t)ctl_mpe_samt) >> 13;
+    }
 #if BOARD_SMK37
     p8 += (lfo * ctl_vib) >> 15;                /* the SMK-37's mod wheel: pitch only, gentle */
 #endif
@@ -675,13 +720,21 @@ static void voice_block(voice_t *v, uint32_t card)
     v->inc1 = pitch_inc(p1);
     v->inc2 = pitch_inc(p2);
     tmp = (lfo * g->lfo_pwd);
-    v->pw1 = pw_mod(g->pw1_base, pv[P_LFO_PWM_TO] != TO_O2 ? tmp : 0);
-    v->pw2 = pw_mod(g->pw2_base, pv[P_LFO_PWM_TO] != TO_O1 ? tmp : 0);
+    if (v->mch) {                               /* (RAIN) MPE to the pulse width: both oscillators */
+        if (ctl_mpe_pdst == MD_PWM) mpw += mq_p * (int32_t)ctl_mpe_pamt;   /* (as the LFO's PWM at full depth) */
+        if (ctl_mpe_sdst == MD_PWM) mpw += mq_s * (int32_t)ctl_mpe_samt;
+    }
+    v->pw1 = pw_mod(g->pw1_base, (pv[P_LFO_PWM_TO] != TO_O2 ? tmp : 0) + mpw);
+    v->pw2 = pw_mod(g->pw2_base, (pv[P_LFO_PWM_TO] != TO_O1 ? tmp : 0) + mpw);
     /* cutoff, Q8 semitones */
     cut = g->cut_sm + 8 * 256 + ((fenv * g->fenv_amt * 390) >> 15)
         + ((int32_t)v->note - 60) * g->keytrk * 2 + (((int32_t)v->vel - 64) * g->velflt >> 1)
         + ((lfo * g->lfo_fd * 97) >> 15) + ((lfo * g->wheel_q * 48) >> 15) + ((VINT_CUT8[card % NCARD] * vint) >> 7)
         + ((v->drift * vint) >> 7);             /* the vintage walk on the cutoff too: ~1/4 semitone at the default */
+    if (v->mch) {                               /* (RAIN) MPE to the cutoff: up to 4 octaves, pressure up, slide both ways */
+        if (ctl_mpe_pdst == MD_CUT) cut += (mq_p * (int32_t)ctl_mpe_pamt * 96) >> 15;
+        if (ctl_mpe_sdst == MD_CUT) cut += (mq_s * (int32_t)ctl_mpe_samt * 96) >> 15;
+    }
     if (g->ftype == F_LP24) lad_coef(&v->lc, cut, g->lad_k);
     else svf_coef(&v->c1, cut, g->reso_k);
     /* amp */
@@ -689,6 +742,12 @@ static void voice_block(voice_t *v, uint32_t card)
     trem = 32767 - (((32767 - lfo) * g->lfo_ad) >> 8);
     v->amp0 = v->amp1;
     a = (int32_t)(((int64_t)(v->ae.level >> 9) * velg >> 15) * trem >> 15);
+    if (v->mch && ctl_mpe_pdst == MD_AMP)       /* (RAIN) MPE: the pressure plays the level (at full AMOUNT: none, no sound) */
+        a = (int32_t)(((int64_t)a * (32767 - (((32767 - mq_p) * (int32_t)ctl_mpe_pamt) >> 7))) >> 15);
+    if (v->mch && ctl_mpe_sdst == MD_AMP) {     /* (RAIN) the slide: louder up, softer down */
+        int32_t gs = 32767 + ((mq_s * (int32_t)ctl_mpe_samt) >> 8);
+        a = (int32_t)(((int64_t)a * (gs < 0 ? 0 : gs > 49151 ? 49151 : gs)) >> 15);
+    }
     v->amp1 = (a * g->gain_q12) >> 12;          /* the sound's VOLUME */
     ui_vlevel[card] = a;
     ui_vnote[card] = v->note;

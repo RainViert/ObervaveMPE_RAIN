@@ -1,0 +1,37 @@
+# (RAIN) MPE on track A (48 semitones), two notes on members 2 and 3, the first bent up an octave; then track B on its own channel 15
+3000 midi 0xC0 70 0
+3100 btn 7
+3200 btn 7
+3300 btn 7
+3400 enc 2 1
+3420 enc 2 1
+3440 enc 2 1
+3460 enc 2 1
+3500 shot
+3600 btn 7
+3650 enc 3 1
+3655 enc 3 1
+3660 enc 3 1
+3665 enc 3 1
+3670 enc 3 1
+3675 enc 3 1
+3680 enc 3 1
+3685 enc 3 1
+3690 enc 3 1
+3695 enc 3 1
+3700 enc 3 1
+3705 enc 3 1
+3710 enc 3 1
+3715 enc 3 1
+3720 enc 3 1
+3800 shot
+4000 midi 0x91 60 100
+4000 midi 0x92 64 100
+4500 midi 0xE1 0 80
+6000 midi 0x81 60 0
+6000 midi 0x82 64 0
+6500 midi 0xCE 70 0
+6600 midi 0x9E 67 100
+7600 midi 0x8E 67 0
+8600 shot
+9000 end

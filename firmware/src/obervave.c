@@ -58,7 +58,23 @@ static struct {
     uint8_t m_vol, m_dj, m_drive, m_comp, m_ok; /* MASTER: volume (100 = unity), DJ filter (64 = off, below LP, above
                                                    HP), drive, compressor; ok: M_OK */
     uint8_t link, link_ok;                      /* (3.4) VIBE LINK: 0 off, 1 on, 2 control – obv_link.h; ok: LINK_OK */
+    uint8_t mpe, mpe_pdst, mpe_pamt, mpe_sdst, mpe_samt;   /* (RAIN) MPE: off / the members' bend range (MPE_RANGE),
+                                                 * pressure and slide: MD_* and 0..127 */
+    uint8_t ch_trk[NTRK - 1u];                  /* (RAIN) tracks B, C, D: their own MIDI channel 1..16, 0 = as before */
+    uint8_t dly_rate, rain_ok;                  /* (RAIN) the delay's RATE 0 FULL .. 3 1/8; ok: RAIN_OK */
 } set;
+#define RAIN_OK 0x7Au
+#define NMPE 6u
+static const uint8_t MPE_RANGE[NMPE] = {0, 2, 12, 24, 48, 96};
+static const char *const MD_NAME[NMD] = {"OFF", "LEVEL", "CUTOFF", "VIBRATO", "PWM"};
+static const char *const DR_NAME[4] = {"FULL", "1/2", "1/4", "1/8"};
+static void rain_apply(void)                    /* (RAIN) the settings into the engine */
+{
+    ctl_mpe_range = MPE_RANGE[set.mpe % NMPE];
+    ctl_mpe_pdst = set.mpe_pdst % NMD; ctl_mpe_pamt = set.mpe_pamt & 127u;
+    ctl_mpe_sdst = set.mpe_sdst % NMD; ctl_mpe_samt = set.mpe_samt & 127u;
+    ctl_dly_sh = set.dly_rate & 3u;
+}
 #define MIDI_OUT_CH (set.midi_ch ? (set.midi_ch - 1u + seq_trk % NTRK) & 15u : 0u)   /* the keys go out on the track's MIDI channel (OMNI: 1) */
 #define RQT_OK 0xA5u
 static const char *const LK_NAME[3] = {"LINK OFF", "LINK ON", "LINK CONTROL"};   /* (3.4) VIBE LINK, obv_link.h */
@@ -83,6 +99,7 @@ typedef struct {                                /* SET_VERSION 2 (1.4.3 and befo
     patch_t user[32];
 } set_v2_t;
 static uint32_t set_dirty, set_t;
+static int set_rc;                              /* (RAIN) the settings' load */
 /* the user's programs: PS_N to a flash sector (psect_load / psect_save), all of them in RAM */
 #define PS_N 50u
 #define PS_TAG 0x50564F42u                      /* "BOVP" */
@@ -923,6 +940,17 @@ static void draw_page(void)
             else if (i == 1) { scat(k[i].value, CLICK_NAME[set.click % NCLICK]); k[i].v = set.click % NCLICK; k[i].max = NCLICK - 1; }
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
+        } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
+            static const char *const RL[3][4] = {{"RATE", "", "", ""}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"}};
+            uint32_t r = page == PG_DELAY2 ? 0u : page == PG_MPE ? 1u : 2u, v = 0, mx = 0;
+            k[i].label = RL[r][i];
+            k[i].present = r || !i;
+            if (r == 0u && !i) { v = set.dly_rate & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
+            else if (r == 1u && i == 0) { v = set.mpe % NMPE; mx = NMPE - 1u; if (v) { fmt_u(k[i].value, MPE_RANGE[v]); scat(k[i].value, " ST"); } else scat(k[i].value, "OFF"); }
+            else if (r == 1u && (i == 1 || i == 3)) { v = (i == 1 ? set.mpe_pdst : set.mpe_sdst) % NMD; mx = NMD - 1u; scat(k[i].value, MD_NAME[v]); }
+            else if ((r == 1u && i == 2) || (r == 2u && i == 0)) { v = (r == 1u ? set.mpe_pamt : set.mpe_samt) & 127u; mx = 127; fmt_u(k[i].value, (v * 100u + 63u) / 127u); scat(k[i].value, "%"); }
+            else if (r == 2u) { v = set.ch_trk[i - 1]; mx = 16; if (v) fmt_u(k[i].value, v); else scat(k[i].value, "AUTO"); }
+            k[i].v = (int32_t)v; k[i].max = (int32_t)mx;
         } else if (layer == L_EDIT || layer == L_FX || layer == L_GLO || layer == L_SAVE) {
             layer_knob(&k[i], i);
         } else if (seq_shown()) {
@@ -1963,7 +1991,33 @@ static void midi_in(uint32_t notes_only)
         }
         if (st == 0xFCu) { ctl_seq_run = 0; ctl_ext_lock = 0; dirty_tags = dirty_steps = 1; continue; }
         if (st >= 0xF0u) continue;
-        if (set.midi_ch && ch > set.midi_ch && ch < set.midi_ch + NTRK) {   /* the next three channels: tracks B-D */
+        {                                       /* (RAIN) a track B-D with a channel of its own */
+            uint32_t t;
+            for (t = 1; t < NTRK && set.ch_trk[t - 1u] != ch; t++) ;
+            if (t < NTRK) {
+                if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
+                else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
+                else if (kind == 0xC0u && d1 < NPROG) { trk_load(t, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
+                else if (kind == 0xB0u && d1 == 64u) ;   /* (the pedal stays track A's) */
+                else if (kind == 0xB0u && cc_map[d1]) {
+                    uint32_t p = cc_map[d1] - 1u;
+                    if (!is_a_only(p)) set_param_in(&live_p[t], p, PDEF[p].max == 127 ? (int32_t)d2 : ((int32_t)d2 * PDEF[p].max + 63) / 127);
+                    dirty_page = dirty_hdr = 1;
+                }
+                continue;
+            }
+        }
+        if (ctl_mpe_range && ch > 1u) {         /* (RAIN) MPE: channels 2..16 are track A's notes, each its own */
+            uint32_t c = (ch - 1u) & 15u;
+            if (kind == 0x90u && d2) note_event_ch(0, 1, d1, d2, c);
+            else if (kind == 0x80u || kind == 0x90u) note_event_ch(0, 0, d1, 0, c);
+            else if (kind == 0xE0u) mpe_bend[c] = (int16_t)((int32_t)(d1 | d2 << 7) - 8192);
+            else if (kind == 0xD0u) mpe_press[c] = (uint8_t)d1;
+            else if (kind == 0xB0u && d1 == 74u) mpe_slide[c] = (int8_t)((int32_t)d2 - 64);
+            continue;                           /* (a member's other messages: none of the track's) */
+        }
+        if (ctl_mpe_range) ;                    /* (channel 1, the MPE master: track A's as ever) */
+        else if (set.midi_ch && ch > set.midi_ch && ch < set.midi_ch + NTRK) {   /* the next three channels: tracks B-D */
             uint32_t t = ch - set.midi_ch;
             if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
             else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
@@ -1975,7 +2029,7 @@ static void midi_in(uint32_t notes_only)
             }
             continue;
         }
-        if (set.midi_ch && ch != set.midi_ch) continue;
+        if (!ctl_mpe_range && set.midi_ch && ch != set.midi_ch) continue;   /* (RAIN: MPE's master is channel 1) */
         if (kind == 0x90u && d2) {
             note_in(1, d1, d2);
             if (notes_shown()) dirty_steps = dirty_page = 1;
@@ -2114,7 +2168,12 @@ static void app_main(void)
                 psect[n].tag = PS_TAG;
             }
         set.version = 0;
-        if (settings_load(&set, sizeof set) || set.version != SET_VERSION) {
+        set_rc = settings_load(&set, sizeof set);
+        if (set_rc) {                           /* (RAIN) OberVave's own settings, saved without the RAIN bytes: kept */
+            set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.mpe - (uint8_t *)&set));
+            set.rain_ok = 0;
+        }
+        if (set_rc || set.version != SET_VERSION) {
             static set_v2_t old __attribute__((section(".pool")));
             set_v3_t o3;
             memset(&set, 0, sizeof set);
@@ -2153,6 +2212,11 @@ static void app_main(void)
     if (set.dv_ok != DV_OK) { uint32_t t; for (t = 0; t < NTRK; t++) set.mix_drv[t] = 0; set.dv_type = DV_OVERDRIVE; set.dv_amt = 60; set.dv_tone = 90; set.dv_mix = 127; set.dv_ok = DV_OK; }
     if (set.m_ok != M_OK) { set.m_vol = 100; set.m_dj = 64; set.m_drive = 0; set.m_comp = 0; set.m_ok = M_OK; }
     if (set.link_ok != LINK_OK) { set.link = 0; set.link_ok = LINK_OK; }   /* (3.4) */
+    if (set.rain_ok != RAIN_OK) {               /* (RAIN) MPE off, pressure and slide on the cutoff, the channels as before */
+        set.mpe = 0; set.mpe_pdst = MD_CUT; set.mpe_pamt = 40; set.mpe_sdst = MD_CUT; set.mpe_samt = 30;
+        set.ch_trk[0] = set.ch_trk[1] = set.ch_trk[2] = 0; set.dly_rate = 0; set.rain_ok = RAIN_OK;
+    }
+    rain_apply();
     if (set.prog >= NPROG) set.prog = 0;
     if (set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
     if (set.oct < -2 || set.oct > 2) set.oct = 0;
@@ -2252,8 +2316,8 @@ static void app_main(void)
                             entry_reset();
                         } else if (LL[k] == L_EDIT && is_seq_page(page) && SV_ENTRY(seq_view)) seq_clear_cursor();
                         else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC1, 6);
-                        else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 4);
-                        else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : PG_GLOBAL;
+                        else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 5);   /* (RAIN: + DELAY +) */
+                        else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : page >= PG_OUTPUT && page < PG_GLOBAL ? page + 1u : PG_GLOBAL;   /* (RAIN: GLOBAL, OUTPUT, MPE, MPE + CHANNELS) */
                         else if (is_seq_page(page) && seq_view == SV_SLOTS) { mem_do(); entry_reset(); }   /* MEMORY: SAVE does it */
                         else {                  /* SAVE tapped: MEMORY (the full-screen sequencer's last view) */
                             if (!is_seq_page(page)) { seq_back = page; np = PG_SEQ; }
@@ -2431,6 +2495,19 @@ static void app_main(void)
                 else if (k == 2) set.midi_ch = (uint8_t)clampi(set.midi_ch + e, 0, 16);
                 else { set.tune = (int8_t)clampi(set.tune + e, -50, 50); ctl_tune8 = set.tune * 256 / 100; }
                 set_dirty = 1; set_t = fm1_ms;
+            } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
+                int32_t s1 = e > 0 ? 1 : -1;
+                if (page == PG_DELAY2) { if (k == 0) set.dly_rate = (uint8_t)clampi((int32_t)(set.dly_rate & 3u) + s1, 0, 3); }
+                else if (page == PG_MPE) {
+                    if (k == 0) set.mpe = (uint8_t)clampi((int32_t)(set.mpe % NMPE) + s1, 0, NMPE - 1);
+                    else if (k == 1) set.mpe_pdst = (uint8_t)clampi((int32_t)(set.mpe_pdst % NMD) + s1, 0, NMD - 1);
+                    else if (k == 3) set.mpe_sdst = (uint8_t)clampi((int32_t)(set.mpe_sdst % NMD) + s1, 0, NMD - 1);
+                    else set.mpe_pamt = (uint8_t)clampi((int32_t)(set.mpe_pamt & 127u) + e * 2, 0, 127);
+                } else {
+                    if (k == 0) set.mpe_samt = (uint8_t)clampi((int32_t)(set.mpe_samt & 127u) + e * 2, 0, 127);
+                    else set.ch_trk[k - 1] = (uint8_t)clampi((int32_t)set.ch_trk[k - 1] + s1, 0, 16);
+                }
+                rain_apply(); set_dirty = 1; set_t = fm1_ms;
             } else if (is_seq_page(page) && !layer && step_held < 0) {   /* the full-screen sequencer's view */
                 seq_view_turn(k, e);
                 dirty_steps = 1;

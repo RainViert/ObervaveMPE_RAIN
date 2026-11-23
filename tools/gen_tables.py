@@ -39,6 +39,8 @@ def main(path):
     # envelope times 0.5 ms .. 10 s: attack aims at 1.3 and stops at 1.0 (t = 1.466 tau), decay / release
     # reach 5 % of the way in t (t = 3 tau)
     ms = [0.5 * (20000 ** (v / 127)) for v in range(128)]
+    # (RAIN) as before up to 115 (3.9 s), then on to 60 s at 127
+    ms = [m if v <= 115 else ms[115] * (60000 / ms[115]) ** ((v - 115) / 12) for v, m in enumerate(ms)]
     L += arr("TIME_MS_X10", "uint32_t", [int(round(m * 10)) for m in ms])
     L += arr("ENV_K_ATT", "uint32_t", [k_block(m / 1000 / 1.466) for m in ms], 8)
     L += arr("ENV_K_DEC", "uint32_t", [k_block(m / 1000 / 3.0) for m in ms], 8)

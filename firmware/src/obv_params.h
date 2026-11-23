@@ -39,7 +39,7 @@ enum { LP_SYNC, LP_FREE, LP_SPREAD };
 enum { TO_O1, TO_O2, TO_BOTH };
 enum { A_OFF, A_UP, A_DOWN, A_UPDN, A_RND, A_PLAY, NARPMODE };
 enum { D_4, D_8, D_8T, D_16, D_16T, D_32, D_32T, NDIV };
-enum { DD_16, DD_8T, DD_8, DD_8D, DD_4, DD_4D, DD_2, NDDIV };   /* the delay's note values */
+enum { DD_16, DD_8T, DD_8, DD_8D, DD_4, DD_4D, DD_2, DD_2D, DD_1, NDDIV };   /* the delay's note values (RAIN: + 1/2., 1/1) */
 
 typedef struct {
     const char *name;                           /* 8 characters at most (the knob label) */
@@ -120,13 +120,13 @@ static const char *const TO_NAME[3] = {"OSC1", "OSC2", "BOTH"};
 static const char *const ARP_NAME[NARPMODE] = {"OFF", "UP", "DOWN", "UP/DN", "RANDOM", "PLAYED"};
 static const char *const DIV_NAME[NDIV] = {"1/4", "1/8", "1/8T", "1/16", "1/16T", "1/32", "1/32T"};
 static const uint8_t DIV_PER_QUARTER[NDIV] = {1, 2, 3, 4, 6, 8, 12};
-static const char *const DDIV_NAME[NDDIV] = {"1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4.", "1/2"};
-static const uint8_t DDIV_NUM[NDDIV] = {1, 1, 1, 3, 1, 3, 2}, DDIV_DEN[NDDIV] = {4, 3, 2, 4, 1, 2, 1};   /* of a quarter */
+static const char *const DDIV_NAME[NDDIV] = {"1/16", "1/8T", "1/8", "1/8.", "1/4", "1/4.", "1/2", "1/2.", "1/1"};
+static const uint8_t DDIV_NUM[NDDIV] = {1, 1, 1, 3, 1, 3, 2, 3, 4}, DDIV_DEN[NDDIV] = {4, 3, 2, 4, 1, 2, 1, 1, 1};   /* of a quarter */
 
 /* the pages: four knobs each (-1 = no knob) */
 typedef struct { const char *title; int8_t p[4]; } page_t;
 enum { PG_PERFORM, PG_OSC1, PG_OSC2, PG_VOICE, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST,
-       PG_LFO2, PG_ARP, PG_CHORUS, PG_DELAY, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2 */
+       PG_LFO2, PG_ARP, PG_CHORUS, PG_DELAY, PG_DELAY2, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_MPE, PG_MPE2, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2; (RAIN) DELAY +, MPE, MPE + CH */
        PG_MIXER, PG_SEQ, NPAGE };              /* the mixer (VIBE), the sequencer's step view: drawn by hand */
 static const page_t PAGE[NPAGE] = {
     [PG_PERFORM] = {"PERFORM", {P_CUTOFF, P_RESO, P_FENV_AMT, P_AR}},   /* (ALGORITHM picks the track now, as sloopDX) */
@@ -145,6 +145,9 @@ static const page_t PAGE[NPAGE] = {
     [PG_ARP] = {"ARP", {P_ARP_MODE, P_ARP_DIV, P_ARP_OCT, P_ARP_GATE}},
     [PG_CHORUS] = {"CHORUS", {P_CHO_RATE, P_CHO_DEPTH, P_CHO_MIX, -1}},
     [PG_DELAY] = {"DELAY", {P_DLY_TIME, P_DLY_FB, P_DLY_TONE, P_DLY_MIX}},
+    [PG_DELAY2] = {"DELAY +", {-1, -1, -1, -1}},   /* (RAIN) RATE: the settings', drawn by hand */
+    [PG_MPE] = {"MPE", {-1, -1, -1, -1}},       /* (RAIN) MPE, PRESSURE, AMOUNT, SLIDE: the settings' */
+    [PG_MPE2] = {"MPE + CHANNELS", {-1, -1, -1, -1}},   /* (RAIN) SLIDE AMOUNT, the MIDI channels of B, C, D */
     [PG_REVERB] = {"REVERB", {P_REV_SIZE, P_REV_DAMP, P_REV_PRE, P_REV_MIX}},
     [PG_DRIVE] = {"DRIVE", {-1, -1, -1, -1}},   /* (VIBE) the drive send: TYPE, DRIVE, TONE, MIX – the settings', drawn by hand */
     [PG_GLOBAL] = {"GLOBAL", {-1, -1, -1, -1}},   /* tempo, MIDI channel, tune, CPU: globals, drawn by hand */
