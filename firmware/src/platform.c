@@ -48,7 +48,7 @@ static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
 static int cpu1_wait(void) { return 0; }
 static uint8_t cpu1_bad;                       /* (RAIN 18) OBV_C1BAD=1: as a device whose second core failed */
-static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] == '1'; }
+static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] >= '1' && e[0] <= '4' ? (uint8_t)(e[0] - '0') : 0; }
 #else
 #include <stdint.h>
 #include "fm1_time.h"
@@ -517,20 +517,20 @@ static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x
 static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
 static void cpu1_boot(void)
 {
-    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; cpu1_bad = 1; return; }   /* (RAIN 17.1) */
+    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; cpu1_bad = 1; return; }   /* (RAIN 17.1) 1: a start before crashed */
     fm1_c1_bar.magic = FM1_C1_BAR_MAGIC;        /* (RAIN 17.1) 2 = starting: a crash or reset in the start leaves it, the next
                                                  * boot plays on one core (power-off clears it; fm1_cpu1_start refuses only 1) */
     fm1_c1_bar.barred = 2;
     fm1_guard_pc_open();                        /* (it boots through the chip's ROM: the PC limits open while it starts) */
     fm1_guard_bus_pause();                      /* (RAIN 17.1) */
-    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; cpu1_bad = 1; return; }
+    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; cpu1_bad = 2; return; }   /* 2: never answered */
     fm1_guard_bus_resume();
     fm1_guard_enable(FM1_GUARD_PC);
     c1_test_out = 0;
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
         fm1_cpu1_hold();
         c1_state = C1_FAILED;
-        cpu1_bad = 1;
+        cpu1_bad = 3;                           /* 3: the self-test wrong */
         return;
     }
     c1_state = C1_OK;
@@ -538,7 +538,7 @@ static void cpu1_boot(void)
 }
 static int cpu1_on(void) { return c1_state == C1_OK && fm1_c1_on; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { return cpu1_on() ? fm1_cpu1_run(fn, arg) : 0; }
-static int cpu1_wait(void) { if (fm1_cpu1_wait() == 0) return 0; c1_state = C1_FAILED; cpu1_bad = 1; return -1; }
+static int cpu1_wait(void) { if (fm1_cpu1_wait() == 0) return 0; c1_state = C1_FAILED; cpu1_bad = 4; return -1; }   /* 4: late */
 
 void fm1_cstart(void)
 {

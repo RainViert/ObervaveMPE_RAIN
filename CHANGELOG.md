@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain18.1 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- After the second core failed, SELECT on the CHANNELS page can switch it on again at once (rain18 turned it off
+  again until the next power-on). The page says why it failed: 1C-1 its start crashed before, 1C-2 it never
+  answered, 1C-3 its self-test came back wrong, 1C-4 it was late; the message at the start says it in words.
+
 ## 3.5-rain18 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.
