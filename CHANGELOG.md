@@ -3,6 +3,20 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain17 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The effects on the FM-1's second core.** Chorus, both delays and the reverb run on core 1, one block (5.8 ms)
+  behind the voices on core 0, beside them instead of after them: core 0 keeps only the voices, the mixer, DRIVE
+  and MASTER. The delays' times and the chorus' base are shortened by that block, so they sound as before; the
+  reverb's pre-delay is 5.8 ms longer. GLOBAL's title says 2C (two cores) or 1C.
+- The second core is the one Melodee (Kerem Kilic) found, through X0X (Charles Vestal), SLOOP (Andre Rezemini's
+  dualcore branch, 2.8.3) and Clipper: hal/fm1_cpu1.h / .S, the supplies raised to M-VAVE's own levels at power-on,
+  core 1 held around resets and faults. Started before the audio and proved with a self-test job; a unit whose
+  core 1 does not answer, answers wrong or once runs late plays on one core until power-off, the effects back on
+  core 0 exactly as in rain16 (bit for bit).
+
 ## 3.5-rain16 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.
