@@ -41,12 +41,19 @@ enum { ENC_SELECT = 0, ENC_ALGORITHM = 1, ENC_KNOB1 = 2, ENC_KNOB2 = 3, ENC_KNOB
 
 #ifdef OBV_HOST
 #include "../../tests/host.c"                  /* on a computer: a fake FM-1 (tests/host.c) */
+/* (RAIN 17) the second core on the host: OBV_CORES=2 runs its job at once where the device would hand it over, so the
+ * pipeline (the effects one block behind) is the device's, bit for bit; else one core */
+static int host_c1 = -1;
+static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"); host_c1 = e && e[0] == '2'; } return host_c1; }
+static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
+static int cpu1_wait(void) { return 0; }
 #else
 #include <stdint.h>
 #include "fm1_time.h"
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#include "fm1_cpu1.h"                          /* (RAIN 17) the second core: Melodee's, through X0X, SLOOP, Clipper */
 #if BOARD_SMK37
 #include "smk_input.h"                          /* keys with velocity, buttons, 8 encoders, LEDs, pads, faders, wheels */
 static void fm1_led_key_glow(uint32_t id, int on) { (void)id; (void)on; }   /* (no key LEDs: the pads glow) */
@@ -491,12 +498,41 @@ static void fm1_fault(const fm1_crash_t *c)
     fm1_reboot();
 }
 
+/* (RAIN 17) the second core for the effects (obv_engine.h): started at power-on before the audio, proved with a
+ * self-test job; a unit whose core 1 does not answer, answers wrong or once runs late plays on one core (the
+ * effects back on core 0, as before) until power-off */
+enum { C1_OFF, C1_NOSTART, C1_FAILED, C1_OK };
+static uint8_t c1_state;
+static volatile uint32_t c1_test_out;
+static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x * 1664525u + 1013904223u; return x; }
+static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
+static void cpu1_boot(void)
+{
+    fm1_guard_pc_open();                        /* (it boots through the chip's ROM: the PC limits open while it starts) */
+    if (fm1_cpu1_start() != 0) { fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; return; }
+    fm1_guard_enable(FM1_GUARD_PC);
+    c1_test_out = 0;
+    if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
+        fm1_cpu1_hold();
+        c1_state = C1_FAILED;
+        return;
+    }
+    c1_state = C1_OK;
+}
+static int cpu1_on(void) { return c1_state == C1_OK && fm1_c1_on; }
+static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { return cpu1_on() ? fm1_cpu1_run(fn, arg) : 0; }
+static int cpu1_wait(void) { if (fm1_cpu1_wait() == 0) return 0; c1_state = C1_FAILED; return -1; }
+
 void fm1_cstart(void)
 {
     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
-    extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[];
+    extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[], _c1_start[], _c1_end[], _c1_load[];
     uint32_t *s, *d, p3, boot_mode;
+    fm1_cpu1_halt();                            /* (RAIN 17) a second core left running by a reset must not read the RAM
+                                                 * cleared below */
     fm1_time_init();
+    fm1_supplies_stock();                       /* (RAIN 17) VDC14 1.60 V, SYSVDD 1.38 V as M-VAVE's own firmware: with two
+                                                 * cores some units read the flash and SRAM wrong at the boot loader's */
     fm1_reset_reason();
     p3 = fm1_boot.p3_rst;
     fm1_wdt_arm(0x0D);
@@ -510,6 +546,7 @@ void fm1_cstart(void)
     for (d = _pool_start; d < _pool_end; d++) *d = 0;
     for (s = _data_load, d = _data_start; d < _data_end; s++, d++) *d = *s;
     for (s = _rt_load, d = _rt_start; d < _rt_end; s++, d++) *d = *s;
+    for (s = _c1_load, d = _c1_start; d < _c1_end; s++, d++) *d = *s;   /* (RAIN 17) core 1's waiting loop */
     fm1_mailbox_clear();
     fm1_guard_enable(FM1_GUARD_STACK | FM1_GUARD_WRITE | FM1_GUARD_BUS | FM1_GUARD_PC);
     fm1_boot.p3_rst = (uint8_t)p3;
@@ -530,6 +567,8 @@ void fm1_cstart(void)
     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
     smk_owner_check();
 #endif
+    cpu1_boot();                                /* (RAIN 17) before the audio and the timers (started later, X0X's never
+                                                 * reached its entry) */
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
     usb_start();
 #if FELUCCA_UART

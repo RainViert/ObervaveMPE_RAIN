@@ -110,6 +110,8 @@ typedef struct {
 static dly_t dly1 = {&dl}, dly2 = {&dr};
 static line_t ppl, ppr;                         /* (RAIN 4) the halves of DELAY 1's line, for the ping-pong */
 static volatile uint32_t ctl_dly_pp;
+static uint32_t fx_lat;                         /* (RAIN 17) frames the effects run behind (the second core: one block)
+                                                 * taken off the delays' times and the chorus' base, so they sound as before */
 static uint32_t fx_has_d1 = 1, fx_has_d2 = 1;   /* (RAIN 5) a track sends into it (the engine sets them per block) */
 static volatile uint32_t ctl_d2_rev;            /* (RAIN 13) DELAY 2 reverse */
 static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix, ctl_d2_sh, ctl_d2_ms;   /* (mix 0 until the
@@ -158,6 +160,7 @@ static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t m
     }
     samples = ms ? (ms * (FS / 100u) / 10u) >> d->sh   /* (RAIN 2) a time of its own */
                  : (quarter * DDIV_NUM[div % NDDIV] / DDIV_DEN[div % NDDIV]) >> d->sh;   /* in the line's entries */
+    if (fx_lat && samples > (fx_lat >> d->sh) + 64u) samples -= fx_lat >> d->sh;   /* (RAIN 17) */
     if (samples > mx) samples = mx;
     if (samples < 64u) samples = 64u;
     d->time = (int32_t)(samples << 16);
@@ -463,14 +466,16 @@ static inline __attribute__((always_inline)) void dly_run_pp(dly_t *d, int32_t i
     *or_ = (wr * d->mix) >> 8;
 }
 
-static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const int32_t *ds2, const int32_t *rs, uint32_t n)
+static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const int32_t *ds2, const int32_t *rs, uint32_t n,
+                       uint32_t knee)        /* (RAIN 17) knee 0: out holds the returns only (core 1); the caller rounds */
 {
+    int32_t cb = (529 - (int32_t)(fx_lat < 400u ? fx_lat : 400u)) << 16;   /* (RAIN 17) the chorus' base: 12 ms all told */
     uint32_t i, do_d1 = dly1.active != 0 && fx_ready, do_d2 = dly2.active != 0 && fx_ready, do_rev = rev_active != 0;
     int32_t cm = cho_mix, rm = rev_mix;
     for (i = 0; i < n; i++) {
         int32_t l = out[2u * i], r = out[2u * i + 1u];
         if (cm) {                               /* two taps a quarter turn apart on one line, around 12 ms */
-            int32_t bl = (529 << 16) + tri_q(cho_ph) * cho_depth_k, br = (529 << 16) + tri_q(cho_ph + 0x40000000u) * cho_depth_k;
+            int32_t bl = cb + tri_q(cho_ph) * cho_depth_k, br = cb + tri_q(cho_ph + 0x40000000u) * cho_depth_k;
             cho_ph += cho_inc;
             line_write(&cho, cs[i]);
             l += (line_read_q16(&cho, bl) * cm) >> 8;
@@ -497,7 +502,7 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             r += (rv_yr * rm) >> 8;
 #endif
         }
-        out[2u * i] = sat16(soft16(l));     /* (RAIN 6: soft, was the hard rail) */
-        out[2u * i + 1u] = sat16(soft16(r));
+        if (knee) { out[2u * i] = sat16(soft16(l)); out[2u * i + 1u] = sat16(soft16(r)); }   /* (RAIN 6: soft, was the hard rail) */
+        else { out[2u * i] = l; out[2u * i + 1u] = r; }
     }
 }

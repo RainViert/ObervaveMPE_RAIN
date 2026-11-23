@@ -871,13 +871,27 @@ static void voice_render(voice_t *v, int32_t *out, int32_t *sd, int32_t *sd2, in
 
 /* the mixer: each sound into its own bus, then by its level and pan to the output, and by its three sends into the
  * effects (VIBE: chorus, delay, reverb side by side, as return tracks; their MIX = the return's level) */
-static int32_t bus[NPART][2u * HALF_FRAMES], snd_c[HALF_FRAMES], snd_d[HALF_FRAMES], snd_d2[HALF_FRAMES], snd_r[HALF_FRAMES], snd_v[HALF_FRAMES];
+static int32_t bus[NPART][2u * HALF_FRAMES], snd_v[HALF_FRAMES];
+/* (RAIN 17) the sends into chorus, delay, delay 2, reverb in two sets: core 0 fills one while core 1 works the effects
+ * on the other (the block before), into fx_wet; core 0 adds fx_wet when its own block is done. One core: set 0 only */
+static int32_t snd_buf[2][4][HALF_FRAMES] __attribute__((section(".pool")));
+static int32_t fx_wet[2u * HALF_FRAMES] __attribute__((section(".pool")));
+static int32_t *snd_c = snd_buf[0][0], *snd_d = snd_buf[0][1], *snd_d2 = snd_buf[0][2], *snd_r = snd_buf[0][3];
+static uint32_t snd_cur, fxq_ready, fxq_n, fxq_quarter;
+static void fx_job(uint32_t set)                /* (core 1, or core 0 when core 1 gave up) the effects of a set of sends */
+{
+    uint32_t i;
+    int32_t (*q)[HALF_FRAMES] = snd_buf[set & 1u];
+    fx_block(&live, fxq_quarter);
+    for (i = 0; i < 2u * fxq_n; i++) fx_wet[i] = 0;
+    fx_process(fx_wet, q[0], q[1], q[2], q[3], fxq_n, 0);
+}
 static volatile uint32_t ui_trk_peak[NPART];   /* (VIBE) each track's peak after its fader, for the mixer's meters (the UI takes it) */
 static int32_t mix_g[NPART];                    /* the level as it moves (Q12, slewed per block: no zipper) */
 
 static void engine_audio(int32_t *out, uint32_t n)
 {
-    uint32_t b, v, i, p, used = 0;
+    uint32_t b, v, i, p, used = 0, pipe, kicked = 0;
     static int32_t sc_prev;
     static uint32_t sc_i, sc_sub;
     {                                           /* (RAIN 5) a delay without a send rests (its tail rings out first) */
@@ -885,7 +899,13 @@ static void engine_audio(int32_t *out, uint32_t n)
         for (t = 0; t < NPART; t++) { s1 |= ctl_mix_dly[t]; s2 |= ctl_mix_dly2[t]; }
         fx_has_d1 = s1 != 0 || (ctl_mm_feeds & 1u); fx_has_d2 = s2 != 0 || (ctl_mm_feeds & 2u);   /* (RAIN 12: + the matrix) */
     }
-    fx_block(&live, tempo_quarter());           /* (the delay: not each beat's phase correction, its tape slew would wobble) */
+    pipe = (uint32_t)cpu1_on();                 /* (RAIN 17) two cores: the effects of the block before, beside this one */
+    fx_lat = pipe ? HALF_FRAMES : 0u;
+    if (pipe && fxq_ready) {
+        fxq_quarter = tempo_quarter();
+        kicked = (uint32_t)cpu1_run(fx_job, snd_cur ^ 1u);
+    }
+    if (!pipe) fx_block(&live, tempo_quarter());   /* (the delay: not each beat's phase correction, its tape slew would wobble) */
     vol_q12 = (int32_t)((ctl_cc7 * ctl_cc7) >> 2);
     for (p = 0; p < NPART; p++)
         for (i = 0; i < 2u * n; i++) bus[p][i] = 0;
@@ -972,7 +992,18 @@ static void engine_audio(int32_t *out, uint32_t n)
         snd_r[i] = sat16((clampi(snd_r[i], -262144, 262143) >> 2) * vol_q12 >> 10);
         snd_v[i] = sat16((clampi(snd_v[i], -262144, 262143) >> 2) * vol_q12 >> 10);
     }
-    fx_process(out, snd_c, snd_d, snd_d2, snd_r, n);
+    if (pipe) {                                 /* (RAIN 17) the effects' returns of the block before */
+        if (fxq_ready) {
+            if (!kicked || cpu1_wait() != 0) fx_job(snd_cur ^ 1u);   /* (core 1 refused or gave up: here, this once) */
+            for (i = 0; i < 2u * n && i < 2u * fxq_n; i++) out[i] = sat16(soft16(out[i] + fx_wet[i]));
+        }
+        fxq_ready = 1; fxq_n = n;
+        snd_cur ^= 1u;
+        snd_c = snd_buf[snd_cur][0]; snd_d = snd_buf[snd_cur][1]; snd_d2 = snd_buf[snd_cur][2]; snd_r = snd_buf[snd_cur][3];
+    } else {
+        fx_process(out, snd_c, snd_d, snd_d2, snd_r, n, 1);
+        fxq_ready = 0;
+    }
     drive_process(out, snd_v, n);
     master_process(out, n);
     for (i = 0; i < n && click_amp; i++) {     /* the click: after the effects, never recorded */
