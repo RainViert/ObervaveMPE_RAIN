@@ -6,7 +6,7 @@
  * REV_DIV 1: the reverb at the full rate (the sound comes first). 2: at half the rate, if the chip turns out
  * to need it: a dark hall loses little by it and it halves the reverb's time and memory. */
 #ifndef REV_DIV
-#define REV_DIV 1u
+#define REV_DIV 2u                              /* (RAIN 7: half, for CPU time; was 1) */
 #endif
 #define RVL(x) ((uint32_t)((x) * 44100u / 29761u / REV_DIV))   /* the paper's 29761 Hz lengths at our rate */
 #define DLY_MAX 32768u                          /* a side of the delay: 743 ms */

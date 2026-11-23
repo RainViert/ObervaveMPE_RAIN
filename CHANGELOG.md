@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain7 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The plate reverb at half the rate** (REV_DIV 2, OberVave's own option): about 12 % less CPU time in all, room
+  for the MPE voices and both delays together (with all of it at once the FM-1 ran out of time and crackled). The hall
+  sounds the same, its top is a little darker.
+
 ## 3.5-rain6 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.
