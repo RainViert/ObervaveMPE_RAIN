@@ -521,7 +521,12 @@ static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x
 static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
 static void cpu1_boot(void)
 {
-    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; cpu1_bad = 1; return; }   /* (RAIN 17.1) 1: a start before crashed */
+    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) {   /* (RAIN 17.1) 1: a start before crashed */
+        fm1_c1_bar.barred = 0;                  /* (RAIN 23) read once: the RAM keeps it through a short power-off and an
+                                                 * update, so rain22 saw rain21's and never tried. The app switches the
+                                                 * setting off (saved): the next try is the user's */
+        c1_state = C1_NOSTART; cpu1_bad = 1; return;
+    }
     fm1_c1_bar.magic = FM1_C1_BAR_MAGIC;        /* (RAIN 17.1) 2 = starting: a crash or reset in the start leaves it, the next
                                                  * boot plays on one core (power-off clears it; fm1_cpu1_start refuses only 1) */
     fm1_c1_bar.barred = 2;
@@ -548,7 +553,8 @@ static void cpu1_boot(void)
             c1_reached = (fm1_c1_trace >> 24) == 0xC1u ? (uint8_t)(fm1_c1_trace & 3u) : 0u;   /* 0 never ran, 1 its
                                                                                                  * entry, 2 its loop */
         }
-        if (rc != 0) { c1_state = C1_NOSTART; cpu1_bad = 2; return; }   /* 2: never answered */
+        if (rc != 0) { fm1_c1_bar.barred = 0; c1_state = C1_NOSTART; cpu1_bad = 2; return; }   /* 2: never answered (no crash:
+                                                 * (RAIN 23) no mark left) */
     }
     c1_test_out = 0;
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
