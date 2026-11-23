@@ -126,7 +126,7 @@ static const uint8_t DDIV_NUM[NDDIV] = {1, 1, 1, 3, 1, 3, 2, 3, 4}, DDIV_DEN[NDD
 /* the pages: four knobs each (-1 = no knob) */
 typedef struct { const char *title; int8_t p[4]; } page_t;
 enum { PG_PERFORM, PG_OSC1, PG_OSC2, PG_VOICE, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST,
-       PG_LFO2, PG_ARP, PG_CHORUS, PG_DELAY, PG_DELAY2, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_MPE, PG_MPE2, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2; (RAIN) DELAY +, MPE, MPE + CH */
+       PG_LFO2, PG_ARP, PG_CHORUS, PG_DELAY, PG_DELAY2, PG_DLY2, PG_DLY2P, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_MPE, PG_MPE2, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2; (RAIN) DELAY +, MPE, MPE + CH */
        PG_MIXER, PG_SEQ, NPAGE };              /* the mixer (VIBE), the sequencer's step view: drawn by hand */
 static const page_t PAGE[NPAGE] = {
     [PG_PERFORM] = {"PERFORM", {P_CUTOFF, P_RESO, P_FENV_AMT, P_AR}},   /* (ALGORITHM picks the track now, as sloopDX) */
@@ -146,6 +146,8 @@ static const page_t PAGE[NPAGE] = {
     [PG_CHORUS] = {"CHORUS", {P_CHO_RATE, P_CHO_DEPTH, P_CHO_MIX, -1}},
     [PG_DELAY] = {"DELAY", {P_DLY_TIME, P_DLY_FB, P_DLY_TONE, P_DLY_MIX}},
     [PG_DELAY2] = {"DELAY +", {-1, -1, -1, -1}},   /* (RAIN) RATE: the settings', drawn by hand */
+    [PG_DLY2] = {"DELAY 2", {-1, -1, -1, -1}},     /* (RAIN 3) the second delay: the settings', drawn by hand */
+    [PG_DLY2P] = {"DELAY 2 +", {-1, -1, -1, -1}},
     [PG_MPE] = {"MPE", {-1, -1, -1, -1}},       /* (RAIN) MPE, PRESSURE, AMOUNT, SLIDE: the settings' */
     [PG_MPE2] = {"MPE + CHANNELS", {-1, -1, -1, -1}},   /* (RAIN) SLIDE AMOUNT, the MIDI channels of B, C, D */
     [PG_REVERB] = {"REVERB", {P_REV_SIZE, P_REV_DAMP, P_REV_PRE, P_REV_MIX}},

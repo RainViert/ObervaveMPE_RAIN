@@ -3,6 +3,16 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain4 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **Two delays**: the ping-pong delay is now two mono delays, each with the full time (up to 5.94 s at RATE 1/8),
+  their echoes in the middle. **DELAY** and **DELAY +** are DELAY 1 as before; FX steps on to **DELAY 2** (TIME as a
+  note value, FEEDBK, TONE, MIX) and **DELAY 2 +** (RATE, MODE SYNC / TIME, TIME in ms). The mixer has a row
+  **SEND DELAY 2** after SEND DELAY: each track's send into DELAY 2 (kept with the settings, not per pattern).
+  rain3's settings stay; DELAY 2 starts on a dotted eighth with no sends.
+
 ## 3.5-rain3 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

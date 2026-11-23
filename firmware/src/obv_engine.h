@@ -48,7 +48,7 @@ static patch_t live_p[NPART];
 #define live (live_p[0])                        /* track A's sound: the effects' settings are its */
 /* the mixer (main loop writes): per track a level 0..127, a pan -64..64, a send into the effects 0..127; muted: bit t */
 static volatile uint8_t ctl_mix_lvl[NPART] = {100, 100, 100, 100};
-static volatile uint8_t ctl_mix_cho[NPART] = {127, 127, 127, 127}, ctl_mix_dly[NPART] = {127, 127, 127, 127}, ctl_mix_rev[NPART] = {127, 127, 127, 127};   /* (VIBE) the three sends */
+static volatile uint8_t ctl_mix_cho[NPART] = {127, 127, 127, 127}, ctl_mix_dly[NPART] = {127, 127, 127, 127}, ctl_mix_dly2[NPART], ctl_mix_rev[NPART] = {127, 127, 127, 127};   /* (VIBE) the three sends */
 static volatile int8_t ctl_mix_pan[NPART];
 static volatile uint8_t ctl_mix_drv[NPART];   /* (VIBE) the 4th send: DRIVE */
 static volatile uint32_t ctl_mix_off;           /* bit t: track t silent (muted, or another one soloed) */
@@ -804,7 +804,7 @@ static void voice_render(voice_t *v, int32_t *out)
 
 /* the mixer: each sound into its own bus, then by its level and pan to the output, and by its three sends into the
  * effects (VIBE: chorus, delay, reverb side by side, as return tracks; their MIX = the return's level) */
-static int32_t bus[NPART][2u * HALF_FRAMES], snd_c[HALF_FRAMES], snd_d[HALF_FRAMES], snd_r[HALF_FRAMES], snd_v[HALF_FRAMES];
+static int32_t bus[NPART][2u * HALF_FRAMES], snd_c[HALF_FRAMES], snd_d[HALF_FRAMES], snd_d2[HALF_FRAMES], snd_r[HALF_FRAMES], snd_v[HALF_FRAMES];
 static volatile uint32_t ui_trk_peak[NPART];   /* (VIBE) each track's peak after its fader, for the mixer's meters (the UI takes it) */
 static int32_t mix_g[NPART];                    /* the level as it moves (Q12, slewed per block: no zipper) */
 
@@ -817,7 +817,7 @@ static void engine_audio(int32_t *out, uint32_t n)
     vol_q12 = (int32_t)((ctl_cc7 * ctl_cc7) >> 2);
     for (p = 0; p < NPART; p++)
         for (i = 0; i < 2u * n; i++) bus[p][i] = 0;
-    for (i = 0; i < n; i++) snd_c[i] = snd_d[i] = snd_r[i] = snd_v[i] = 0;
+    for (i = 0; i < n; i++) snd_c[i] = snd_d[i] = snd_d2[i] = snd_r[i] = snd_v[i] = 0;
     for (b = 0; b < n; b += CTL) {
         engine_events();
         eng_t += CTL;
@@ -837,14 +837,14 @@ static void engine_audio(int32_t *out, uint32_t n)
         }
     }
     for (p = 0; p < NPART; p++) {               /* the mixer */
-        int32_t lvl = ctl_mix_off >> p & 1u ? 0 : (int32_t)ctl_mix_lvl[p], target = lvl * lvl * 4096 / 10000, g0 = mix_g[p], gl, gr, sc, sd, sr, sv;   /* 100 = unity */
+        int32_t lvl = ctl_mix_off >> p & 1u ? 0 : (int32_t)ctl_mix_lvl[p], target = lvl * lvl * 4096 / 10000, g0 = mix_g[p], gl, gr, sc, sd, sd2, sr, sv;   /* 100 = unity */
         uint32_t pos = (uint32_t)(clampi(ctl_mix_pan[p], -64, 64) + 64);
         if (!(used >> p & 1u)) { mix_g[p] = target; continue; }
         mix_g[p] += (target - g0) / 2;
         gl = PAN_Q12[128u - pos] * 4096 / 2896; /* (centre = unity: the pan law's -3 dB taken back) */
         gr = PAN_Q12[pos] * 4096 / 2896;
         gl = gl > 4096 ? 4096 : gl; gr = gr > 4096 ? 4096 : gr;
-        sc = ctl_mix_cho[p]; sd = ctl_mix_dly[p]; sr = ctl_mix_rev[p]; sv = ctl_mix_drv[p];
+        sc = ctl_mix_cho[p]; sd = ctl_mix_dly[p]; sd2 = ctl_mix_dly2[p]; sr = ctl_mix_rev[p]; sv = ctl_mix_drv[p];
         {
         int32_t g = g0 << 8, dg = ((mix_g[p] - g0) << 8) / (int32_t)n;   /* (the level glides over the half, Q8) */
         uint32_t pk = 0;
@@ -855,7 +855,7 @@ static void engine_audio(int32_t *out, uint32_t n)
             if (al > pk) pk = al;
             if (ar > pk) pk = ar;
             out[2u * i] += l; out[2u * i + 1u] += r;
-            snd_c[i] += (m * sc) >> 7; snd_d[i] += (m * sd) >> 7; snd_r[i] += (m * sr) >> 7; snd_v[i] += (m * sv) >> 7;
+            snd_c[i] += (m * sc) >> 7; snd_d[i] += (m * sd) >> 7; snd_d2[i] += (m * sd2) >> 7; snd_r[i] += (m * sr) >> 7; snd_v[i] += (m * sv) >> 7;
         }
         if (pk > ui_trk_peak[p]) ui_trk_peak[p] = pk;
         }
@@ -878,10 +878,11 @@ static void engine_audio(int32_t *out, uint32_t n)
     for (i = 0; i < n; i++) {                   /* the sends at the output's scale (the effects work after the output stage) */
         snd_c[i] = sat16((clampi(snd_c[i], -262144, 262143) >> 2) * vol_q12 >> 10);
         snd_d[i] = sat16((clampi(snd_d[i], -262144, 262143) >> 2) * vol_q12 >> 10);
+        snd_d2[i] = sat16((clampi(snd_d2[i], -262144, 262143) >> 2) * vol_q12 >> 10);
         snd_r[i] = sat16((clampi(snd_r[i], -262144, 262143) >> 2) * vol_q12 >> 10);
         snd_v[i] = sat16((clampi(snd_v[i], -262144, 262143) >> 2) * vol_q12 >> 10);
     }
-    fx_process(out, snd_c, snd_d, snd_r, n);
+    fx_process(out, snd_c, snd_d, snd_d2, snd_r, n);
     drive_process(out, snd_v, n);
     master_process(out, n);
     for (i = 0; i < n && click_amp; i++) {     /* the click: after the effects, never recorded */

@@ -64,24 +64,37 @@ static struct {
     uint8_t dly_rate, rain_ok;                  /* (RAIN) the delay's RATE 0 FULL .. 3 1/8; ok: RAIN_OK */
     uint8_t dly_mode, dly_ms_lo, dly_ms_hi, rain2_ok;   /* (RAIN 2) the delay's time: 0 SYNC (the note value), 1 TIME
                                                  * (dly_ms 10 .. 5940 ms, at most what the RATE holds); ok: RAIN2_OK */
+    uint8_t d2_div, d2_fb, d2_tone, d2_mix, d2_rate, d2_mode, d2_ms_lo, d2_ms_hi;   /* (RAIN 3) DELAY 2, as DELAY 1's */
+    uint8_t mix_dly2[NTRK], rain3_ok;           /* (RAIN 3) the tracks' sends into DELAY 2 (the settings', not a pattern's) */
 } set;
+#define RAIN3_OK 0x3Du
+#define D2_MS (set.d2_ms_lo | (uint32_t)set.d2_ms_hi << 8)
 #define RAIN2_OK 0x5Bu
 #define DLY_MS (set.dly_ms_lo | (uint32_t)set.dly_ms_hi << 8)
+#define RAIN_PAGE(pg) ((pg) == PG_DELAY2 || (pg) == PG_DLY2 || (pg) == PG_DLY2P || (pg) == PG_MPE || (pg) == PG_MPE2)
 static const uint16_t DR_MAX_MS[4] = {740, 1480, 2970, 5940};   /* (RAIN 2) what each RATE's lines hold */
 #define RAIN_OK 0x7Au
 #define NMPE 6u
 static const uint8_t MPE_RANGE[NMPE] = {0, 2, 12, 24, 48, 96};
 static const char *const MD_NAME[NMD] = {"OFF", "LEVEL", "CUTOFF", "VIBRATO", "PWM"};
 static const char *const DR_NAME[4] = {"FULL", "1/2", "1/4", "1/8"};
+static uint32_t dly_eff_ms(uint32_t mode, uint32_t ms, uint32_t rate)   /* (RAIN 2) 0: SYNC; else the ms as it sounds */
+{
+    uint32_t mx = DR_MAX_MS[rate & 3u];
+    return mode ? (ms > mx ? mx : ms < 10u ? 10u : ms) : 0u;
+}
 static void rain_apply(void)                    /* (RAIN) the settings into the engine */
 {
     ctl_mpe_range = MPE_RANGE[set.mpe % NMPE];
     ctl_mpe_pdst = set.mpe_pdst % NMD; ctl_mpe_pamt = set.mpe_pamt & 127u;
     ctl_mpe_sdst = set.mpe_sdst % NMD; ctl_mpe_samt = set.mpe_samt & 127u;
     ctl_dly_sh = set.dly_rate & 3u;
+    ctl_dly_ms = dly_eff_ms(set.dly_mode, DLY_MS, set.dly_rate);
+    ctl_d2_div = set.d2_div % NDDIV; ctl_d2_fb = set.d2_fb & 127u; ctl_d2_tone = set.d2_tone & 127u; ctl_d2_mix = set.d2_mix & 127u;
+    ctl_d2_sh = set.d2_rate & 3u; ctl_d2_ms = dly_eff_ms(set.d2_mode, D2_MS, set.d2_rate);
     {
-        uint32_t ms = DLY_MS, mx = DR_MAX_MS[set.dly_rate & 3u];
-        ctl_dly_ms = set.dly_mode ? (ms > mx ? mx : ms < 10u ? 10u : ms) : 0u;
+        uint32_t t;
+        for (t = 0; t < NTRK; t++) ctl_mix_dly2[t] = (uint8_t)(set.mix_dly2[t] > 127u ? 127u : set.mix_dly2[t]);
     }
 }
 #define MIDI_OUT_CH (set.midi_ch ? (set.midi_ch - 1u + seq_trk % NTRK) & 15u : 0u)   /* the keys go out on the track's MIDI channel (OMNI: 1) */
@@ -120,7 +133,9 @@ static uint32_t ps_dirty;                       /* bit i: program sector i to sa
 
 static uint32_t page = PG_PERFORM, hold;       /* hold: bit t = track t's HOLD */
 static uint32_t trk_prog[NTRK], trk_edited[NTRK];   /* each track's program, and whether its sound was changed since */
-static uint32_t mix_row;                        /* the mixer page's knobs: 0 LEVEL, 1 PAN, 2 CHORUS, 3 DELAY, 4 REVERB, 5 DRIVE, 6 MASTER */
+static uint32_t mix_row;                        /* the mixer page's knobs: 0 LEVEL, 1 PAN, 2 CHORUS, 3 DELAY, 4 REVERB, 5 DRIVE, 6 MASTER,
+                                                 * (RAIN 3) 7 DELAY 2 (after DELAY) */
+#define MIX_SV(r) ((r) == 2u ? set.mix_cho : (r) == 3u ? set.mix_dly : (r) == 7u ? set.mix_dly2 : (r) == 5u ? set.mix_drv : set.mix_rev)
 
 /* the sequencer, as the panel sees it */
 enum { REC_OFF, REC_READY, REC_ON };            /* REC: off, armed (the first note starts the loop), recording */
@@ -933,7 +948,7 @@ static void draw_page(void)
                 int32_t pn = set.mix_pan[t];
                 if (!pn) scat(k[i].value, "C"); else { scat(k[i].value, pn < 0 ? "L" : "R"); fmt_u(k[i].value + 1, (uint32_t)(pn < 0 ? -pn : pn)); }
                 k[i].v = pn + 64; k[i].max = 128; k[i].bip = 1;
-            } else { const uint8_t *sv = mix_row == 2u ? set.mix_cho : mix_row == 3u ? set.mix_dly : mix_row == 5u ? set.mix_drv : set.mix_rev;
+            } else { const uint8_t *sv = MIX_SV(mix_row);
                      fmt_u(k[i].value, ((uint32_t)sv[t] * 100u + 63u) / 127u); scat(k[i].value, "%"); k[i].v = sv[t]; k[i].max = 127; }
         } else if (page == PG_DRIVE && !layer) {   /* (VIBE) the drive send's effect */
             static const char *const DL[4] = {"TYPE", "DRIVE", "TONE", "MIX"};
@@ -949,15 +964,22 @@ static void draw_page(void)
             else if (i == 1) { scat(k[i].value, CLICK_NAME[set.click % NCLICK]); k[i].v = set.click % NCLICK; k[i].max = NCLICK - 1; }
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
-        } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
-            static const char *const RL[3][4] = {{"RATE", "MODE", "TIME", ""}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"}};
-            uint32_t r = page == PG_DELAY2 ? 0u : page == PG_MPE ? 1u : 2u, v = 0, mx = 0;
-            k[i].label = RL[r][i];
-            k[i].present = r || i < 2 || (i == 2 && set.dly_mode);
-            if (r == 0u && !i) { v = set.dly_rate & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
-            else if (r == 0u && i == 1) { v = set.dly_mode ? 1u : 0u; mx = 1; scat(k[i].value, v ? "TIME" : "SYNC"); }
+        } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
+            static const char *const RL[5][4] = {{"RATE", "MODE", "TIME", ""}, {"MPE", "PRESS>", "PR AMT", "SLIDE>"}, {"SL AMT", "CH B", "CH C", "CH D"},
+                                                 {"TIME", "FEEDBK", "TONE", "MIX"}, {"RATE", "MODE", "TIME", ""}};
+            uint32_t r = page == PG_DELAY2 ? 0u : page == PG_MPE ? 1u : page == PG_MPE2 ? 2u : page == PG_DLY2 ? 3u : 4u, v = 0, mx = 0;
+            uint32_t d2 = r == 4u, rt = d2 ? set.d2_rate : set.dly_rate, md = d2 ? set.d2_mode : set.dly_mode;
+            if (r == 4u) r = 0u;                /* (DELAY 2 + as DELAY +, on DELAY 2's settings) */
+            k[i].label = RL[d2 ? 4u : r][i];
+            k[i].present = r || i < 2 || (i == 2 && md);
+            if (r == 3u) {                      /* (RAIN 3) DELAY 2 */
+                if (!i) { v = set.d2_div % NDDIV; mx = NDDIV - 1u; scat(k[i].value, DDIV_NAME[v]); }
+                else { v = (i == 1 ? set.d2_fb : i == 2 ? set.d2_tone : set.d2_mix) & 127u; mx = 127; fmt_u(k[i].value, v); }
+            }
+            else if (r == 0u && !i) { v = rt & 3u; mx = 3; scat(k[i].value, DR_NAME[v]); }
+            else if (r == 0u && i == 1) { v = md ? 1u : 0u; mx = 1; scat(k[i].value, v ? "TIME" : "SYNC"); }
             else if (r == 0u && i == 2) {        /* (RAIN 2) the time as it sounds (the RATE's most at most) */
-                uint32_t ms = ctl_dly_ms ? ctl_dly_ms : DLY_MS;
+                uint32_t ms = dly_eff_ms(1, d2 ? D2_MS : DLY_MS, rt);
                 if (ms < 1000u) { fmt_u(k[i].value, ms); scat(k[i].value, "ms"); }
                 else { char t[8]; fmt_u(k[i].value, ms / 1000u); scat(k[i].value, "."); fmt_u(t, (ms % 1000u) / 10u + 100u); scat(k[i].value, t + 1); scat(k[i].value, "s"); }
                 v = ms * 127u / 5940u; mx = 127;
@@ -984,7 +1006,7 @@ static void draw_page(void)
         static char title[24];
         const char *t = pg->title;
         if (layer == L_EDIT) { title[0] = 0; scat(title, "EDIT "); title[5] = TRK_L[seq_trk % NTRK]; title[6] = 0; scat(title, ": ERASE"); t = title; }
-        else if (page == PG_MIXER && !layer) t = mix_row == 0u ? "MIXER  LEVEL" : mix_row == 1u ? "MIXER  PAN" : mix_row == 2u ? "SEND  CHORUS" : mix_row == 3u ? "SEND  DELAY" : mix_row == 4u ? "SEND  REVERB" : mix_row == 5u ? "SEND  DRIVE" : "MASTER";
+        else if (page == PG_MIXER && !layer) t = mix_row == 0u ? "MIXER  LEVEL" : mix_row == 1u ? "MIXER  PAN" : mix_row == 2u ? "SEND  CHORUS" : mix_row == 3u ? "SEND  DELAY" : mix_row == 7u ? "SEND  DELAY 2" : mix_row == 4u ? "SEND  REVERB" : mix_row == 5u ? "SEND  DRIVE" : "MASTER";
         else if (layer == L_GLO) t = "GLO: MUTE SOLO TAP";
         else if (layer == L_SAVE) t = "SAVE: DICE";
         else if (layer == L_FX) t = "FX MIX";
@@ -2186,12 +2208,16 @@ static void app_main(void)
         set.version = 0;
         set_rc = settings_load(&set, sizeof set);
         if (set_rc) {                           /* (RAIN) OberVave's own settings, saved without the RAIN bytes: kept */
+            set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.d2_div - (uint8_t *)&set));   /* (RAIN 2's) */
+            set.rain3_ok = 0;
+        }
+        if (set_rc) {
             set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.dly_mode - (uint8_t *)&set));   /* (RAIN 1's) */
-            set.rain2_ok = 0;
+            set.rain2_ok = set.rain3_ok = 0;
         }
         if (set_rc) {
             set_rc = settings_load(&set, (uint32_t)((uint8_t *)&set.mpe - (uint8_t *)&set));
-            set.rain_ok = set.rain2_ok = 0;
+            set.rain_ok = set.rain2_ok = set.rain3_ok = 0;
         }
         if (set_rc || set.version != SET_VERSION) {
             static set_v2_t old __attribute__((section(".pool")));
@@ -2237,6 +2263,13 @@ static void app_main(void)
         set.ch_trk[0] = set.ch_trk[1] = set.ch_trk[2] = 0; set.dly_rate = 0; set.rain_ok = RAIN_OK;
     }
     if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
+    if (set.rain3_ok != RAIN3_OK) {             /* (RAIN 3) DELAY 2: a dotted eighth, no sends yet */
+        uint32_t t;
+        set.d2_div = DD_8D; set.d2_fb = 60; set.d2_tone = 90; set.d2_mix = 100; set.d2_rate = 0; set.d2_mode = 0;
+        set.d2_ms_lo = 500u & 255u; set.d2_ms_hi = 500u >> 8;
+        for (t = 0; t < NTRK; t++) set.mix_dly2[t] = 0;
+        set.rain3_ok = RAIN3_OK;
+    }
     rain_apply();
     if (set.prog >= NPROG) set.prog = 0;
     if (set.tempo < 40u || set.tempo > 240u) set.tempo = 120;
@@ -2337,7 +2370,7 @@ static void app_main(void)
                             entry_reset();
                         } else if (LL[k] == L_EDIT && is_seq_page(page) && SV_ENTRY(seq_view)) seq_clear_cursor();
                         else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC1, 6);
-                        else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 5);   /* (RAIN: + DELAY +) */
+                        else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 7);   /* (RAIN: + DELAY +, DELAY 2, DELAY 2 +) */
                         else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : page >= PG_OUTPUT && page < PG_GLOBAL ? page + 1u : PG_GLOBAL;   /* (RAIN: GLOBAL, OUTPUT, MPE, MPE + CHANNELS) */
                         else if (is_seq_page(page) && seq_view == SV_SLOTS) { mem_do(); entry_reset(); }   /* MEMORY: SAVE does it */
                         else {                  /* SAVE tapped: MEMORY (the full-screen sequencer's last view) */
@@ -2385,8 +2418,9 @@ static void app_main(void)
             else if (layer_lock) { layer = L_NONE; layer_lock = 0; dirty_page = dirty_steps = dirty_tags = 1; leds_q = 0xFFFFFFFFu; }
             else if (page == PG_PERFORM) { np = PG_MIXER; mix_row = 0; }   /* again: the MIXER (VIBE's F1) */
             else if (page == PG_MIXER) {        /* there: its next row */
-                static const char *const MR[7] = {"LEVEL", "PAN", "SEND CHORUS", "SEND DELAY", "SEND REVERB", "SEND DRIVE", "MASTER"};
-                mix_row = (mix_row + 1u) % 7u; say(MR[mix_row]); dirty_page = dirty_steps = 1;
+                static const char *const MR[8] = {"LEVEL", "PAN", "SEND CHORUS", "SEND DELAY", "SEND REVERB", "SEND DRIVE", "MASTER", "SEND DELAY 2"};
+                static const uint8_t NEXT[8] = {1, 2, 3, 7, 5, 6, 0, 4};   /* (RAIN 3: DELAY 2 after DELAY) */
+                mix_row = NEXT[mix_row & 7u]; say(MR[mix_row]); dirty_page = dirty_steps = 1;
             }
             else np = PG_PERFORM;
         }
@@ -2503,8 +2537,8 @@ static void app_main(void)
                 }
                 else if (mix_row == 0u) set.mix_lvl[k] = (uint8_t)clampi((int32_t)set.mix_lvl[k] + e, 0, 127);
                 else if (mix_row == 1u) set.mix_pan[k] = (int8_t)clampi((int32_t)set.mix_pan[k] + e, -64, 64);
-                else { uint8_t *sv = mix_row == 2u ? set.mix_cho : mix_row == 3u ? set.mix_dly : mix_row == 5u ? set.mix_drv : set.mix_rev; sv[k] = (uint8_t)clampi((int32_t)sv[k] + e * 2, 0, 127); }
-                mix_apply(); set_dirty = 1; set_t = fm1_ms;
+                else { uint8_t *sv = MIX_SV(mix_row); sv[k] = (uint8_t)clampi((int32_t)sv[k] + e * 2, 0, 127); }
+                mix_apply(); rain_apply(); set_dirty = 1; set_t = fm1_ms;
                 dirty_steps = 1;
             } else if (page == PG_DRIVE && !layer) {   /* (VIBE) TYPE, DRIVE, TONE, MIX */
                 if (k == 0) set.dv_type = (uint8_t)clampi((int32_t)(set.dv_type % NDV) + (e > 0 ? 1 : -1), 0, NDV - 1);
@@ -2516,16 +2550,21 @@ static void app_main(void)
                 else if (k == 2) set.midi_ch = (uint8_t)clampi(set.midi_ch + e, 0, 16);
                 else { set.tune = (int8_t)clampi(set.tune + e, -50, 50); ctl_tune8 = set.tune * 256 / 100; }
                 set_dirty = 1; set_t = fm1_ms;
-            } else if ((page == PG_DELAY2 || page == PG_MPE || page == PG_MPE2) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
+            } else if (RAIN_PAGE(page) && !layer && !SMK_PAD_HELD) {   /* (RAIN) */
                 int32_t s1 = e > 0 ? 1 : -1;
-                if (page == PG_DELAY2) {
-                    if (k == 0) set.dly_rate = (uint8_t)clampi((int32_t)(set.dly_rate & 3u) + s1, 0, 3);
-                    else if (k == 1) set.dly_mode = (uint8_t)clampi((int32_t)(set.dly_mode ? 1 : 0) + s1, 0, 1);
-                    else if (k == 2 && set.dly_mode) {   /* (RAIN 2) about 2 % a click, 1 ms at the least */
-                        int32_t ms = (int32_t)(ctl_dly_ms ? ctl_dly_ms : DLY_MS), st = ms / 50;
-                        ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[set.dly_rate & 3u]);
-                        set.dly_ms_lo = (uint8_t)ms; set.dly_ms_hi = (uint8_t)(ms >> 8);
+                if (page == PG_DELAY2 || page == PG_DLY2P) {
+                    uint8_t *rt = page == PG_DLY2P ? &set.d2_rate : &set.dly_rate, *md = page == PG_DLY2P ? &set.d2_mode : &set.dly_mode;
+                    uint8_t *lo = page == PG_DLY2P ? &set.d2_ms_lo : &set.dly_ms_lo, *hi = page == PG_DLY2P ? &set.d2_ms_hi : &set.dly_ms_hi;
+                    if (k == 0) *rt = (uint8_t)clampi((int32_t)(*rt & 3u) + s1, 0, 3);
+                    else if (k == 1) *md = (uint8_t)clampi((int32_t)(*md ? 1 : 0) + s1, 0, 1);
+                    else if (k == 2 && *md) {   /* (RAIN 2) about 2 % a click, 1 ms at the least */
+                        int32_t ms = (int32_t)dly_eff_ms(1, *lo | (uint32_t)*hi << 8, *rt), st = ms / 50;
+                        ms = clampi(ms + e * (st < 1 ? 1 : st), 10, DR_MAX_MS[*rt & 3u]);
+                        *lo = (uint8_t)ms; *hi = (uint8_t)(ms >> 8);
                     }
+                } else if (page == PG_DLY2) {   /* (RAIN 3) DELAY 2 */
+                    if (k == 0) set.d2_div = (uint8_t)clampi((int32_t)(set.d2_div % NDDIV) + s1, 0, NDDIV - 1);
+                    else { uint8_t *v = k == 1 ? &set.d2_fb : k == 2 ? &set.d2_tone : &set.d2_mix; *v = (uint8_t)clampi((int32_t)(*v & 127u) + e, 0, 127); }
                 }
                 else if (page == PG_MPE) {
                     if (k == 0) set.mpe = (uint8_t)clampi((int32_t)(set.mpe % NMPE) + s1, 0, NMPE - 1);
