@@ -475,11 +475,11 @@ static void platform_poll(void)
 static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
-    uint32_t i, t0, v[3] = {c->vec, c->pc, c->rets};
+    uint32_t i, t0, v[6] = {c->vec, c->pc, c->rets, c->emu, c->dbg, c->sp};   /* (RAIN 5) + the cause bits and sp */
     fm1_audio_stop();
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
-    for (i = 0; i < 3u; i++) {
+    for (i = 0; i < 6u; i++) {
         uint32_t k;
         for (k = 0; k < 8u; k++) b[k] = "0123456789ABCDEF"[(v[i] >> (28u - 4u * k)) & 15u];
         b[8] = 0;

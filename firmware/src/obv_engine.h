@@ -813,6 +813,11 @@ static void engine_audio(int32_t *out, uint32_t n)
     uint32_t b, v, i, p, used = 0;
     static int32_t sc_prev;
     static uint32_t sc_i, sc_sub;
+    {                                           /* (RAIN 5) a delay without a send rests (its tail rings out first) */
+        uint32_t t, s1 = 0, s2 = 0;
+        for (t = 0; t < NPART; t++) { s1 |= ctl_mix_dly[t]; s2 |= ctl_mix_dly2[t]; }
+        fx_has_d1 = s1 != 0; fx_has_d2 = s2 != 0;
+    }
     fx_block(&live, tempo_quarter());           /* (the delay: not each beat's phase correction, its tape slew would wobble) */
     vol_q12 = (int32_t)((ctl_cc7 * ctl_cc7) >> 2);
     for (p = 0; p < NPART; p++)

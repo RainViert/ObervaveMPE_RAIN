@@ -94,6 +94,7 @@ typedef struct {
 static dly_t dly1 = {&dl}, dly2 = {&dr};
 static line_t ppl, ppr;                         /* (RAIN 4) the halves of DELAY 1's line, for the ping-pong */
 static volatile uint32_t ctl_dly_pp;
+static uint32_t fx_has_d1 = 1, fx_has_d2 = 1;   /* (RAIN 5) a track sends into it (the engine sets them per block) */
 static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix = 100, ctl_d2_sh, ctl_d2_ms;
 #if REV_DIV == 2u
 static uint32_t fx_odd;
@@ -113,7 +114,7 @@ static void fx_init(void)
     ppr.b = dl.b + DLY_MAX / 2u; ppr.len = DLY_MAX / 2u; ppr.w = 0;
 }
 
-static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter, uint32_t pp)
+static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter, uint32_t pp, uint32_t fed)
 {
     uint32_t samples, mx = (pp ? DLY_MAX / 2u : DLY_MAX) - 4u;
     d->mix = (mv * 180) >> 7;                   /* wet up to 0.7 of the dry (Q8) */
@@ -132,7 +133,7 @@ static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t m
     if (samples < 64u) samples = 64u;
     d->time = (int32_t)(samples << 16);
     if (d->cur < 0) d->cur = d->time;
-    if (d->mix) d->active = 12u * FS; else if (d->active > HALF_FRAMES) d->active -= HALF_FRAMES; else d->active = 0;
+    if (d->mix && fed) d->active = 12u * FS; else if (d->active > HALF_FRAMES) d->active -= HALF_FRAMES; else d->active = 0;
 }
 
 /* the patch's numbers, once per ISR call. quarter: frames per quarter note (the arp's clock) */
@@ -153,8 +154,8 @@ static void fx_block(const patch_t *p, uint32_t quarter)
         rev_damp_k = 32768 - (int32_t)r;
     }
     rev_pre_n = 1u + (uint32_t)p->v[P_REV_PRE] * (41u / REV_DIV);
-    dly_setup(&dly1, div, p->v[P_DLY_FB], p->v[P_DLY_TONE], p->v[P_DLY_MIX], ctl_dly_sh, ctl_dly_ms, quarter, ctl_dly_pp ? 1u : 0u);
-    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter, 0u);
+    dly_setup(&dly1, div, p->v[P_DLY_FB], p->v[P_DLY_TONE], p->v[P_DLY_MIX], ctl_dly_sh, ctl_dly_ms, quarter, ctl_dly_pp ? 1u : 0u, fx_has_d1);
+    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter, 0u, fx_has_d2);
     if (rev_mix) rev_active = 24u * FS; else if (rev_active > HALF_FRAMES) rev_active -= HALF_FRAMES; else rev_active = 0;
 }
 
