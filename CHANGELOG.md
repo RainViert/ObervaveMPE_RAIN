@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain22 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- The second core's first instructions run from RAM, not the flash (on the unit where it never answered, 1C-2.0,
+  it did not even reach them; Clipper's second core runs on that unit).
+- When the second core failed, the CHANNELS page shows why in its lower half: the reason, the bus guard's flags
+  during the start and how far the core got, for the diagnosis.
+
 ## 3.5-rain21 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

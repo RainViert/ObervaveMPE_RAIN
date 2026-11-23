@@ -80,6 +80,7 @@ static struct {
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
+static char c1_text[40];                        /* (RAIN 22) the last failure in words, shown again on SELECT */
 static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
 static int obv_cores_wanted(void)               /* (RAIN 18) at power-on, before the app: the settings as saved (an older
@@ -2448,13 +2449,19 @@ static void app_main(void)
     for (;;) {
         uint32_t rel, b, lit = 0, base = (uint32_t)(KEY0 + 12 * set.oct), np = page;
         int32_t e;
-        if (cpu1_bad && set.cores2) {          /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
+        if (cpu1_bad) {                         /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
                                                  * late): off for good, saved; the user may switch it on again */
             static const char *const WHY[5] = {"", "CRASHED BEFORE", "NO ANSWER", "WRONG RESULT", "TOO LATE"};
-            static char m[40];
-            m[0] = 0; scat(m, "2 CORES OFF: "); scat(m, WHY[cpu1_bad < 5u ? cpu1_bad : 0]);
-            set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1;
-            say(m);
+            char *m = c1_text;
+            m[0] = 0; scat(m, "2C OFF: "); scat(m, WHY[cpu1_bad < 5u ? cpu1_bad : 0]);
+            if (cpu1_bad == 2u) {               /* (RAIN 22) for the diagnosis: the bus guard's flags, how far it got */
+                static const char HX[] = "0123456789ABCDEF";
+                uint32_t q, n = slen(m);
+                m[n++] = ' ';
+                for (q = 0; q < 8u; q++) m[n++] = HX[c1_msg >> (28u - 4u * q) & 15u];
+                m[n++] = ' '; m[n++] = (char)('0' + c1_reached % 10u); m[n] = 0;
+            }
+            if (set.cores2) { set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1; say(m); }
         }
         if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 19) kept for the CHANNELS page; handled once: SELECT can try
                                                  * again at the next power-on */
@@ -2505,7 +2512,7 @@ static void app_main(void)
         if (b & (1u << BTN_SEL) && page == PG_OUTPUT && !layer) { link_set(set.link + 1u); dirty_page = 1; }   /* (3.4) OUTPUT: SELECT pressed = VIBE LINK off > on > control */
         if (b & (1u << BTN_SEL) && page == PG_MPE2 && !layer) {   /* (RAIN 18) CHANNELS: SELECT pressed = 1 / 2 CORES */
             set.cores2 = !set.cores2; set_dirty = 1; set_t = fm1_ms;
-            say(set.cores2 ? "2 CORES FROM THE NEXT POWER-ON" : "1 CORE FROM THE NEXT POWER-ON");
+            say(c1_why && !set.cores2 ? c1_text : set.cores2 ? "2 CORES FROM THE NEXT POWER-ON" : "1 CORE FROM THE NEXT POWER-ON");
             dirty_page = 1;
         }
         if (b & (1u << BTN_SEL) && page == PG_GLOBAL && !layer) {   /* GLOBAL: SELECT pressed = SYNC AUTO / INTERNAL */
@@ -2940,7 +2947,9 @@ static void app_main(void)
             else
 #endif
             if (seq_shown() || rec || rec_down || layer) draw_hints();   /* the sequencer's hints instead of the voice LEDs */
-            else if (q != leds_q) { leds_q = q; draw_leds(); }
+            else if (page == PG_MPE2 && c1_why) {   /* (RAIN 22) why the second core failed, instead of the voice LEDs */
+                if (leds_q != 0xC1C1C1C1u) { leds_q = 0xC1C1C1C1u; ui_hints(c1_text, "SECOND CORE", C_RED); }
+            } else if (q != leds_q) { leds_q = q; draw_leds(); }
             if (page == PG_GLOBAL && fm1_ms - t_page >= 250u) dirty_page = 1;
         }
         if (page == PG_MATRIX && !layer) {      /* (RAIN 9) the matrix's list instead of the scope */
