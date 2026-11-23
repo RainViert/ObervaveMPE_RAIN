@@ -32,3 +32,10 @@ complete source under the same licence too.
 "Starrykey" belong to their owners. OberVave is inspired by the classic 8-voice poly synths of 1979-84; "Oberheim", "OB-X" and "OB-8" are
 trademarks of their owner. OberVave is not made or endorsed by any of them, and none of these marks appear in the
 firmware itself.
+
+## The second core (RainViert/obervave, RAIN 17)
+
+`firmware/hal/fm1_cpu1.h`, `fm1_cpu1.S` and the second core's parts of `fm1_sys.h`, `fm1_guard.h`, `fm1_irq.h` and
+`app.ld` (GPL-3.0-only) come from Clipper (isod89/clipper-fm1), which took them from SLOOP 2.8.3 (Andre Rezemini's
+dualcore branch, andrerezemini/sloop-lab), which took them from X0X by Charles Vestal (charlesvestal/fm1-x0x), after
+the dual-core audio of Melodee by Kerem Kilic (keremimo/melodee). The supplies' levels: X0X 1.0.9, SLOOP 2.7.
