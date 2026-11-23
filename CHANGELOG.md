@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain20 – 2026-11-23
+
+A personal variant (RainViert/obervave), not an official OberVave release.
+
+- **The second core's start as Clipper's.** On the FM-1 where rain19 said 1C-2 (core 1 never answered), Clipper
+  RAIN starts its second core fine: Clipper starts it seconds after the supplies are raised, OberVave did a few
+  milliseconds after. Now the supplies get 300 ms to settle first, and the start is tried up to three times.
+- 1C-2.N on the CHANNELS page: how far core 1 got (0 it never ran, 1 its entry, 2 its loop).
+
 ## 3.5-rain19 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

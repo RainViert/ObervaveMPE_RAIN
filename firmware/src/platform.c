@@ -47,6 +47,7 @@ static int host_c1 = -1;
 static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"); host_c1 = e && e[0] == '2'; } return host_c1; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
 static int cpu1_wait(void) { return 0; }
+static uint8_t c1_tries, c1_reached;
 static uint8_t cpu1_bad;                       /* (RAIN 18) OBV_C1BAD=1: as a device whose second core failed */
 static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] >= '1' && e[0] <= '4' ? (uint8_t)(e[0] - '0') : 0; }
 #else
@@ -510,6 +511,7 @@ static void fm1_fault(const fm1_crash_t *c)
 enum { C1_OFF, C1_NOSTART, C1_FAILED, C1_OK };
 static uint8_t c1_state;
 static int obv_cores_wanted(void);              /* (RAIN 18) obervave.c: the saved settings ask for two cores */
+static uint8_t c1_tries, c1_reached;           /* (RAIN 20) the start's tries, how far core 1 got (the CHANNELS page) */
 static uint8_t cpu1_bad;                        /* (RAIN 18) the second core failed, now or in a start before this boot: the
                                                  * app switches its setting off (obervave.c) */
 static volatile uint32_t c1_test_out;
@@ -521,11 +523,30 @@ static void cpu1_boot(void)
     fm1_c1_bar.magic = FM1_C1_BAR_MAGIC;        /* (RAIN 17.1) 2 = starting: a crash or reset in the start leaves it, the next
                                                  * boot plays on one core (power-off clears it; fm1_cpu1_start refuses only 1) */
     fm1_c1_bar.barred = 2;
-    fm1_guard_pc_open();                        /* (it boots through the chip's ROM: the PC limits open while it starts) */
-    fm1_guard_bus_pause();                      /* (RAIN 17.1) */
-    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; cpu1_bad = 2; return; }   /* 2: never answered */
-    fm1_guard_bus_resume();
-    fm1_guard_enable(FM1_GUARD_PC);
+    {   /* (RAIN 20) Clipper starts it seconds after the supplies were raised (its splash comes first), rain17-19 a few
+         * ms after: core 1 crashed (17) or never answered (19, 1C-2) on a unit where Clipper's runs. So: the supplies
+         * get 300 ms to settle, then up to three tries 100 ms apart */
+        uint32_t t0 = fm1_ticks(), tries;
+        int rc = -1;
+        while ((uint32_t)(fm1_ticks() - t0) < 300u * 1000u * FM1_TICKS_PER_US)
+            fm1_wdt_feed();
+        for (tries = 0; tries < 3u && rc != 0; tries++) {
+            if (tries) {
+                t0 = fm1_ticks();
+                while ((uint32_t)(fm1_ticks() - t0) < 100u * 1000u * FM1_TICKS_PER_US)
+                    fm1_wdt_feed();
+            }
+            fm1_guard_pc_open();                /* (it boots through the chip's ROM: the PC limits open while it starts) */
+            fm1_guard_bus_pause();              /* (RAIN 17.1) */
+            rc = fm1_cpu1_start();
+            fm1_guard_bus_resume();
+            fm1_guard_enable(FM1_GUARD_PC);
+            c1_tries = (uint8_t)(tries + 1u);
+            c1_reached = (fm1_c1_trace >> 24) == 0xC1u ? (uint8_t)(fm1_c1_trace & 3u) : 0u;   /* 0 never ran, 1 its
+                                                                                                 * entry, 2 its loop */
+        }
+        if (rc != 0) { c1_state = C1_NOSTART; cpu1_bad = 2; return; }   /* 2: never answered */
+    }
     c1_test_out = 0;
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
         fm1_cpu1_hold();
