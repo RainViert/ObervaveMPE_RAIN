@@ -1,0 +1,14 @@
+# (RAIN 18) CHANNELS page: SELECT switches the second core on/off for the next power-on (OBV_C1BAD=1: a failed core turns it off again)
+3000 btn 7
+3100 btn 7
+3200 btn 7
+3300 btn 7
+3500 shot
+3600 btn 3
+3800 shot
+4000 btn 3
+4200 shot
+4400 btn 3
+4600 shot
+8000 shot
+9000 end

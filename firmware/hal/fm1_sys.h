@@ -170,6 +170,8 @@ static void fm1_reboot(void)
     __asm__ volatile("cli");
     fm1_cpu1_halt();                                   /* the second core held (2.7.1: no bus flag to trap on) */
     fm1_p33_or(FM1_P3_PR_PWR, 0x10);
+    fm1_wdt_arm(0x0A);                                 /* (RAIN 18) if that reset did not come: the watchdog's, 1 s,
+                                                        * never fed from here on */
     for (;;)
         ;
 }

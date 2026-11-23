@@ -92,8 +92,11 @@ static void fm1_guard_enable(uint32_t which)
  * raised DBG_MSG bit 4 (AXI read) on core 0 while it waited for core 1 to report in */
 static void fm1_guard_bus_pause(void)
 {
+    uint32_t bus = (0x3Fu << 16) | (0x3u << 4);
+    __asm__("" : "+r"(bus));                    /* (RAIN 18, as fm1_cpu1_halt: ~bus not folded into a constant the
+                                                 * build's check takes for a ROM address) */
     fm1__dbg_unlock();
-    FM1_DBG_EN &= ~((0x3Fu << 16) | (0x3u << 4));
+    FM1_DBG_EN &= ~bus;
     fm1__dbg_lock();
 }
 static void fm1_guard_bus_resume(void)

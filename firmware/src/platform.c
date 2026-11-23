@@ -47,6 +47,8 @@ static int host_c1 = -1;
 static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"); host_c1 = e && e[0] == '2'; } return host_c1; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
 static int cpu1_wait(void) { return 0; }
+static uint8_t cpu1_bad;                       /* (RAIN 18) OBV_C1BAD=1: as a device whose second core failed */
+static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] == '1'; }
 #else
 #include <stdint.h>
 #include "fm1_time.h"
@@ -483,6 +485,7 @@ static void fm1_fault(const fm1_crash_t *c)
 {
     char b[12];
     uint32_t i, t0, v[6] = {c->vec, c->pc, c->rets, c->emu, c->dbg, c->sp};   /* (RAIN 5) + the cause bits and sp */
+    fm1_cpu1_halt();                            /* (RAIN 18) the second core held first: it cannot meet the screen or the reset */
     fm1_audio_stop();
     lcd_fill(0, 0, 240, 240, RGB(160, 0, 0));
     draw_text_box(0, 20, 240, &FONT_S, APP_NAME " CRASH", C_WHITE, 1);
@@ -492,8 +495,11 @@ static void fm1_fault(const fm1_crash_t *c)
         b[8] = 0;
         draw_text_box(10, 60 + i * 20, 220, &FONT_S, b, C_WHITE, 0);
     }
+    /* (RAIN 18) 8 s by the timer, but never longer than a counted bound: rain17 crashed in the second core's start
+     * with the timer most likely stopped, this loop fed the watchdog for good and the red screen stayed half an
+     * hour. The count (each pass a P33 access, ~1 us) ends it within some seconds whatever the timer does */
     t0 = fm1_ticks();
-    while ((uint32_t)(fm1_ticks() - t0) < 8000u * 1000u * FM1_TICKS_PER_US)
+    for (i = 0; i < 16000000u && (uint32_t)(fm1_ticks() - t0) < 8000u * 1000u * FM1_TICKS_PER_US; i++)
         fm1_wdt_feed();
     fm1_reboot();
 }
@@ -503,24 +509,28 @@ static void fm1_fault(const fm1_crash_t *c)
  * effects back on core 0, as before) until power-off */
 enum { C1_OFF, C1_NOSTART, C1_FAILED, C1_OK };
 static uint8_t c1_state;
+static int obv_cores_wanted(void);              /* (RAIN 18) obervave.c: the saved settings ask for two cores */
+static uint8_t cpu1_bad;                        /* (RAIN 18) the second core failed, now or in a start before this boot: the
+                                                 * app switches its setting off (obervave.c) */
 static volatile uint32_t c1_test_out;
 static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x * 1664525u + 1013904223u; return x; }
 static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
 static void cpu1_boot(void)
 {
-    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; return; }   /* (RAIN 17.1) */
+    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) { c1_state = C1_NOSTART; cpu1_bad = 1; return; }   /* (RAIN 17.1) */
     fm1_c1_bar.magic = FM1_C1_BAR_MAGIC;        /* (RAIN 17.1) 2 = starting: a crash or reset in the start leaves it, the next
                                                  * boot plays on one core (power-off clears it; fm1_cpu1_start refuses only 1) */
     fm1_c1_bar.barred = 2;
     fm1_guard_pc_open();                        /* (it boots through the chip's ROM: the PC limits open while it starts) */
     fm1_guard_bus_pause();                      /* (RAIN 17.1) */
-    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; return; }
+    if (fm1_cpu1_start() != 0) { fm1_guard_bus_resume(); fm1_guard_enable(FM1_GUARD_PC); c1_state = C1_NOSTART; cpu1_bad = 1; return; }
     fm1_guard_bus_resume();
     fm1_guard_enable(FM1_GUARD_PC);
     c1_test_out = 0;
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
         fm1_cpu1_hold();
         c1_state = C1_FAILED;
+        cpu1_bad = 1;
         return;
     }
     c1_state = C1_OK;
@@ -528,13 +538,13 @@ static void cpu1_boot(void)
 }
 static int cpu1_on(void) { return c1_state == C1_OK && fm1_c1_on; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { return cpu1_on() ? fm1_cpu1_run(fn, arg) : 0; }
-static int cpu1_wait(void) { if (fm1_cpu1_wait() == 0) return 0; c1_state = C1_FAILED; return -1; }
+static int cpu1_wait(void) { if (fm1_cpu1_wait() == 0) return 0; c1_state = C1_FAILED; cpu1_bad = 1; return -1; }
 
 void fm1_cstart(void)
 {
     extern uint32_t _data_start[], _data_end[], _data_load[], _bss_start[], _bss_end[];
     extern uint32_t _pool_start[], _pool_end[], _rt_start[], _rt_end[], _rt_load[], _c1_start[], _c1_end[], _c1_load[];
-    uint32_t *s, *d, p3, boot_mode;
+    uint32_t *s, *d, p3, boot_mode, boot_keys;
     fm1_cpu1_halt();                            /* (RAIN 17) a second core left running by a reset must not read the RAM
                                                  * cleared below */
     fm1_time_init();
@@ -559,6 +569,7 @@ void fm1_cstart(void)
     fm1_boot.p3_rst = (uint8_t)p3;
     if (boot_mode == BOOT_RECOVERY || recovery_key())
         recovery_main();                        /* OCT- at power-on: the USB rescue */
+    boot_keys = fm1_in.buttons;                 /* (RAIN 18) the keys held at power-on (recovery_key read them) */
 #if BOARD_SMK37
     smk_jedec = FL_FAR(fl_jedec_ram)();         /* (the panel check shows it: units may carry another part) */
     flash_ok = FL_JEDEC_OK(smk_jedec);
@@ -574,8 +585,10 @@ void fm1_cstart(void)
     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
     smk_owner_check();
 #endif
-    cpu1_boot();                                /* (RAIN 17) before the audio and the timers (started later, X0X's never
-                                                 * reached its entry) */
+    if (!(boot_keys & 1u << FM1_BTN_OCT_UP) && obv_cores_wanted())
+        cpu1_boot();                            /* (RAIN 17) before the audio and the timers (started later, X0X's never
+                                                 * reached its entry). (RAIN 18) only when the settings ask for it (off by
+                                                 * default) and OCT+ is not held: one core else, as rain16 */
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */
     usb_start();
 #if FELUCCA_UART

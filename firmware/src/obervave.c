@@ -74,8 +74,19 @@ static struct {
                                                  * loaded brings it (the factory ones: none). Here, not in the programs'
                                                  * sectors: they are full (2376 B of this sector's 4084) */
     uint8_t rain10_ok;
+    uint8_t cores2, rain18_ok;                  /* (RAIN 18) 1 = the effects on the second core, from the next power-on;
+                                                 * off by default and after a start of it that failed (CHANNELS page,
+                                                 * SELECT). OCT+ held at power-on: one core this time */
 } set;
 #define RAIN10_OK 0xA1u
+#define RAIN18_OK 0xB2u
+#ifndef OBV_HOST
+static int obv_cores_wanted(void)               /* (RAIN 18) at power-on, before the app: the settings as saved (an older
+                                                 * store, a missing or broken one: one core) */
+{
+    return !settings_load(&set, sizeof set) && set.rain18_ok == RAIN18_OK && set.cores2 == 1u;
+}
+#endif
 _Static_assert(sizeof set <= SETTINGS_MAX, "the settings outgrew their sector");
 #define RAIN9_OK 0x9Au
 #define RAIN4_OK 0x4Eu
@@ -1125,7 +1136,7 @@ static void draw_page(void)
         {
             static char cpu[24];                /* the GLOBAL page: the render time of an audio half (budget 5800 us), SYNC */
             cpu[0] = 0; fmt_u(cpu, ui_render_us); scat(cpu, "us"); scat(cpu, set.sync_int ? " INT" : ctl_ext_quarter ? " CLK" : " AUTO"); scat(cpu, cpu1_on() ? " 2C" : " 1C");   /* (RAIN 17) the cores */
-            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : 0);
+            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : "1C") : 0);
         }
     }
 }
@@ -2327,6 +2338,9 @@ static void app_main(void)
     uint32_t k, i, t_led = 0, t_scope = 0, t_page = 0, t_hdr = 0, leds_q = 1;
     uint32_t swap_seen = 0, leds_prev = 0xFFFFFFFFu, glow = 0, glow_prev = 0xFFFFFFFFu, t_steps = 0, ticks_seen = 0;
     rnd = 0xC0FFEE42u;
+#ifdef OBV_HOST
+    host_c1_bad();
+#endif
 #if BOARD_SMK37
     smk_pad_events = 1;                         /* the pads are OberVave's step pads (obv_smk.h), not notes */
 #endif
@@ -2343,9 +2357,9 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[7] = {sizeof set, SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[8] = {sizeof set, SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
-            for (z = 0; z < 7u; z++) {
+            for (z = 0; z < 8u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
                 if (!set_rc) { memset((uint8_t *)&set + SZ[z], 0, sizeof set - SZ[z]); break; }
             }
@@ -2395,6 +2409,7 @@ static void app_main(void)
     }
     if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
     if (set.rain10_ok != RAIN10_OK) { memset(set.mm_prog, 0, sizeof set.mm_prog); set.rain10_ok = RAIN10_OK; }   /* (RAIN 10) */
+    if (set.rain18_ok != RAIN18_OK || set.cores2 > 1u) { set.cores2 = 0; set.rain18_ok = RAIN18_OK; }   /* (RAIN 18) one core */
     if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
     if (set.rain4_ok != RAIN4_OK) { set.d1_pp = 0; set.rain4_ok = RAIN4_OK; }   /* (RAIN 4) mono, as rain4 */
     if (set.rain3_ok != RAIN3_OK) {             /* (RAIN 3) DELAY 2: a dotted eighth, no sends yet */
@@ -2430,6 +2445,11 @@ static void app_main(void)
     for (;;) {
         uint32_t rel, b, lit = 0, base = (uint32_t)(KEY0 + 12 * set.oct), np = page;
         int32_t e;
+        if (cpu1_bad && set.cores2) {          /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
+                                                 * late): off for good, saved; the user may switch it on again */
+            set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1;
+            say("2 CORES OFF: CORE 2 FAILED");
+        }
         if (mirror_poll()) {                    /* FM-1 Mirror opened (or rows were lost): everything drawn again */
             lcd_fill(0, 0, 240, 240, C_PANEL);
             dirty_hdr = dirty_page = dirty_steps = dirty_tags = 1; hints_key = leds_q = 0xFFFFFFFFu; scope_state = 1; t_scope = 0;
@@ -2474,6 +2494,11 @@ static void app_main(void)
             if (mh != more_held) { more_held = mh; dirty_page = dirty_steps = 1; }   /* (SELECT held in STEPS: STEP+) */
         }
         if (b & (1u << BTN_SEL) && page == PG_OUTPUT && !layer) { link_set(set.link + 1u); dirty_page = 1; }   /* (3.4) OUTPUT: SELECT pressed = VIBE LINK off > on > control */
+        if (b & (1u << BTN_SEL) && page == PG_MPE2 && !layer) {   /* (RAIN 18) CHANNELS: SELECT pressed = 1 / 2 CORES */
+            set.cores2 = !set.cores2; set_dirty = 1; set_t = fm1_ms;
+            say(set.cores2 ? "2 CORES FROM THE NEXT POWER-ON" : "1 CORE FROM THE NEXT POWER-ON");
+            dirty_page = 1;
+        }
         if (b & (1u << BTN_SEL) && page == PG_GLOBAL && !layer) {   /* GLOBAL: SELECT pressed = SYNC AUTO / INTERNAL */
             set.sync_int = !set.sync_int; set_dirty = 1; set_t = fm1_ms;
             if (set.sync_int) { ctl_ext_quarter = 0; ctl_ext_lock = 0; clk_n = 0; }
