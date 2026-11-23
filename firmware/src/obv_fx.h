@@ -88,8 +88,12 @@ typedef struct {
     int32_t time, cur, lp, fb, tk, mix;         /* time, cur Q16 entries (cur slews like a tape); tk the tone's one-pole */
     uint32_t sh, n, active;                     /* the rate in use; samples into the current entry */
     int32_t acc, y0, y1;
+    uint32_t pp;                                /* (RAIN 4) DELAY 1 only: ping-pong on its line's two halves */
+    int32_t lpr, y0r, y1r;
 } dly_t;
 static dly_t dly1 = {&dl}, dly2 = {&dr};
+static line_t ppl, ppr;                         /* (RAIN 4) the halves of DELAY 1's line, for the ping-pong */
+static volatile uint32_t ctl_dly_pp;
 static volatile uint32_t ctl_d2_div = 3, ctl_d2_fb = 60, ctl_d2_tone = 90, ctl_d2_mix = 100, ctl_d2_sh, ctl_d2_ms;
 #if REV_DIV == 2u
 static uint32_t fx_odd;
@@ -105,24 +109,26 @@ static void fx_init(void)
     line_init(&rv_ap1, RV_AP1 + 16u); line_init(&rv_d1, RV_D1); line_init(&rv_ap2, RV_AP2); line_init(&rv_d2, RV_D2);
     line_init(&rv_ap3, RV_AP3 + 16u); line_init(&rv_d3, RV_D3); line_init(&rv_ap4, RV_AP4); line_init(&rv_d4, RV_D4);
     dly1.cur = dly1.time = dly2.cur = dly2.time = 11025 << 16;
+    ppl.b = dl.b; ppl.len = DLY_MAX / 2u; ppl.w = 0;
+    ppr.b = dl.b + DLY_MAX / 2u; ppr.len = DLY_MAX / 2u; ppr.w = 0;
 }
 
-static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter)
+static void dly_setup(dly_t *d, uint32_t div, int32_t fbv, int32_t tv, int32_t mv, uint32_t sh, uint32_t ms, uint32_t quarter, uint32_t pp)
 {
-    uint32_t samples;
+    uint32_t samples, mx = (pp ? DLY_MAX / 2u : DLY_MAX) - 4u;
     d->mix = (mv * 180) >> 7;                   /* wet up to 0.7 of the dry (Q8) */
     d->fb = fbv * 250;                          /* up to 0.97 */
     d->tk = clampi(((tv * tv) >> 6) + 8, 8, 256);
-    if ((sh & 3u) != d->sh) {                   /* (RAIN) a new RATE: from silence */
+    if ((sh & 3u) != d->sh || pp != d->pp) {    /* (RAIN) a new RATE (or ping-pong / mono): from silence */
         uint32_t i;
-        d->sh = sh & 3u;
+        d->sh = sh & 3u; d->pp = pp;
         for (i = 0; i < DLY_MAX; i++) d->ln->b[i] = 0;
-        d->n = 0; d->acc = d->lp = d->y0 = d->y1 = 0;
+        d->n = 0; d->acc = d->lp = d->y0 = d->y1 = d->lpr = d->y0r = d->y1r = 0;
         d->cur = -1;                            /* (below: straight to the time, the line is empty: no tape slew) */
     }
     samples = ms ? (ms * (FS / 100u) / 10u) >> d->sh   /* (RAIN 2) a time of its own */
                  : (quarter * DDIV_NUM[div % NDDIV] / DDIV_DEN[div % NDDIV]) >> d->sh;   /* in the line's entries */
-    if (samples > DLY_MAX - 4u) samples = DLY_MAX - 4u;
+    if (samples > mx) samples = mx;
     if (samples < 64u) samples = 64u;
     d->time = (int32_t)(samples << 16);
     if (d->cur < 0) d->cur = d->time;
@@ -147,8 +153,8 @@ static void fx_block(const patch_t *p, uint32_t quarter)
         rev_damp_k = 32768 - (int32_t)r;
     }
     rev_pre_n = 1u + (uint32_t)p->v[P_REV_PRE] * (41u / REV_DIV);
-    dly_setup(&dly1, div, p->v[P_DLY_FB], p->v[P_DLY_TONE], p->v[P_DLY_MIX], ctl_dly_sh, ctl_dly_ms, quarter);
-    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter);
+    dly_setup(&dly1, div, p->v[P_DLY_FB], p->v[P_DLY_TONE], p->v[P_DLY_MIX], ctl_dly_sh, ctl_dly_ms, quarter, ctl_dly_pp ? 1u : 0u);
+    dly_setup(&dly2, ctl_d2_div, (int32_t)ctl_d2_fb, (int32_t)ctl_d2_tone, (int32_t)ctl_d2_mix, ctl_d2_sh, ctl_d2_ms, quarter, 0u);
     if (rev_mix) rev_active = 24u * FS; else if (rev_active > HALF_FRAMES) rev_active -= HALF_FRAMES; else rev_active = 0;
 }
 
@@ -347,6 +353,48 @@ static inline __attribute__((always_inline)) int32_t dly_run(dly_t *d, int32_t i
     return (w * d->mix) >> 8;
 }
 
+/* (RAIN 4) DELAY 1 as the ping-pong it was: the input enters left, the feedback crosses; on the halves of its line */
+static inline __attribute__((always_inline)) void dly_run_pp(dly_t *d, int32_t in, int32_t *ol, int32_t *or_)
+{
+    int32_t wl, wr;
+    if (!d->sh) {
+        if (d->cur < d->time) { d->cur += 1 << 15; if (d->cur > d->time) d->cur = d->time; }
+        else if (d->cur > d->time) { d->cur -= 1 << 15; if (d->cur < d->time) d->cur = d->time; }
+        wl = line_read_q16(&ppl, d->cur);
+        wr = line_read_q16(&ppr, d->cur);
+        d->lp += ((wr - d->lp) * d->tk) >> 8;
+        d->lpr += ((wl - d->lpr) * d->tk) >> 8;
+        line_write(&ppl, in + ((d->lp * d->fb) >> 15));
+        line_write(&ppr, (d->lpr * d->fb) >> 15);
+    } else {
+        uint32_t m = (1u << d->sh) - 1u;
+        int32_t f;
+        d->acc += in;
+        if ((d->n & m) == m) {
+            int32_t tk = d->tk << d->sh;
+            if (tk > 256) tk = 256;
+            if (d->cur < d->time) { d->cur += 1 << 15; if (d->cur > d->time) d->cur = d->time; }
+            else if (d->cur > d->time) { d->cur -= 1 << 15; if (d->cur < d->time) d->cur = d->time; }
+            if (d->cur < (2 << 16)) d->cur = 2 << 16;
+            wl = line_read_q16(&ppl, d->cur);
+            wr = line_read_q16(&ppr, d->cur);
+            d->lp += ((wr - d->lp) * tk) >> 8;
+            d->lpr += ((wl - d->lpr) * tk) >> 8;
+            line_write(&ppl, (d->acc >> d->sh) + ((d->lp * d->fb) >> 15));
+            line_write(&ppr, (d->lpr * d->fb) >> 15);
+            d->acc = 0;
+            d->y0 = d->y1; d->y1 = wl;
+            d->y0r = d->y1r; d->y1r = wr;
+        }
+        f = (int32_t)((d->n + 1u) & m);
+        wl = d->y0 + (((d->y1 - d->y0) * f) >> d->sh);
+        wr = d->y0r + (((d->y1r - d->y0r) * f) >> d->sh);
+        d->n++;
+    }
+    *ol = (wl * d->mix) >> 8;
+    *or_ = (wr * d->mix) >> 8;
+}
+
 static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const int32_t *ds2, const int32_t *rs, uint32_t n)
 {
     uint32_t i, do_d1 = dly1.active != 0, do_d2 = dly2.active != 0, do_rev = rev_active != 0;
@@ -360,7 +408,8 @@ static void fx_process(int32_t *out, const int32_t *cs, const int32_t *ds, const
             l += (line_read_q16_h(&cho, bl) * cm) >> 8;
             r += (line_read_q16_h(&cho, br) * cm) >> 8;
         }
-        if (do_d1) { int32_t w = dly_run(&dly1, ds[i]); l += w; r += w; }
+        if (do_d1 && dly1.pp) { int32_t wl, wr; dly_run_pp(&dly1, ds[i], &wl, &wr); l += wl; r += wr; }
+        else if (do_d1) { int32_t w = dly_run(&dly1, ds[i]); l += w; r += w; }
         if (do_d2) { int32_t w = dly_run(&dly2, ds2[i]); l += w; r += w; }
         if (do_rev) {
 #if REV_DIV == 2u                               /* half rate: a pair in, the output interpolated between ticks */

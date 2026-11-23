@@ -12,6 +12,8 @@ A personal variant (RainViert/obervave), not an official OberVave release.
   note value, FEEDBK, TONE, MIX) and **DELAY 2 +** (RATE, MODE SYNC / TIME, TIME in ms). The mixer has a row
   **SEND DELAY 2** after SEND DELAY: each track's send into DELAY 2 (kept with the settings, not per pattern).
   rain3's settings stay; DELAY 2 starts on a dotted eighth with no sends.
+- **DELAY 1 STEREO** (DELAY +, knob 4): MONO or PINGPONG (the old ping-pong, on the two halves of DELAY 1's line:
+  half the longest time, 370 ms at FULL up to 2.97 s at 1/8).
 
 ## 3.5-rain3 – 2026-11-23
 

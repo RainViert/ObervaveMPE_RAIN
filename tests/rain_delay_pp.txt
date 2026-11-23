@@ -1,0 +1,19 @@
+# (RAIN 4) DELAY 1 ping-pong, 500 ms: the echoes left, right, left ...
+3000 midi 0xC0 65 0
+3100 btn 2
+3150 btn 2
+3200 enc 5 1
+3205 enc 5 1
+3210 enc 5 1
+3215 enc 5 1
+3220 enc 5 1
+3225 enc 5 1
+3230 enc 5 1
+3235 enc 5 1
+3300 btn 2
+3400 enc 3 1
+3450 enc 5 1
+3500 shot
+4000 midi 0x90 60 120
+4050 midi 0x80 60 0
+7000 end
