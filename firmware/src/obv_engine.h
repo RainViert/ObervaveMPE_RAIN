@@ -159,6 +159,8 @@ static part_t pt[NPART] = {{&live_p[0], 0, 0, 0, 0, 60 << 16}, {&live_p[1], 0, 0
  * is set. Their numbers are worked out only in a block where one of them sounds */
 static patch_t kit_p[NKT], kit_base[NKT];      /* (kit_base: the programs as saved; kit_p: + the kit track's knobs) */
 static volatile uint8_t kit_busy;
+#define OUT_LIM 24576u                          /* (RAIN 32) the leveller's ceiling: 0.75 of full scale */
+static uint32_t out_env;                        /* its peak follower (the output stage's input, Q15) */
 static volatile uint8_t ctl_kit[NPART][12];     /* (RAIN 31) each track's kit keys as played: 0 silent, 1..NKP a synthesized
                                                  * drum, NKP + 1 the key's program (kit_base[NKP + pitch class]) */               /* the main loop is copying kit_base: this block keeps kit_p as it was */
 static uint8_t kit_trk;                         /* the track whose kit played last: its knobs move the drums */
@@ -1033,8 +1035,22 @@ static void engine_audio(int32_t *out, uint32_t n)
         }
     }
     for (i = 0; i < n; i++) {                   /* the output stage: a gentle tanh, never a hard clip */
-        int32_t l = softclip((clampi(out[2u * i], -262144, 262143) >> 2) * vol_q12 >> 10);
-        int32_t r = softclip((clampi(out[2u * i + 1u], -262144, 262143) >> 2) * vol_q12 >> 10);
+        int32_t l = (clampi(out[2u * i], -262144, 262143) >> 2) * vol_q12 >> 10;
+        int32_t r = (clampi(out[2u * i + 1u], -262144, 262143) >> 2) * vol_q12 >> 10;
+        {   /* (RAIN 32) a leveller in front of the tanh: a held chord at full sustain drove it far into saturation (the
+             * sum of six voices at their peak, for seconds: harsh intermodulation). Above 0.75 of full scale its gain
+             * comes down (attack ~0.2 ms, release ~190 ms) so the tanh sees at most ~0.75; below, nothing changes */
+            uint32_t al = (uint32_t)(l < 0 ? -l : l), ar = (uint32_t)(r < 0 ? -r : r), a = al > ar ? al : ar;
+            if (a > out_env) out_env += (a - out_env) >> 3;
+            else out_env -= out_env >> 13;
+            if (out_env > OUT_LIM) {
+                int32_t gq = (int32_t)(((uint32_t)OUT_LIM << 15) / out_env);   /* Q15 */
+                l = (l * gq) >> 15;
+                r = (r * gq) >> 15;
+            }
+        }
+        l = softclip(l);
+        r = softclip(r);
         int32_t m = (l + r) >> 1;
         out[2u * i] = l;
         out[2u * i + 1u] = r;
