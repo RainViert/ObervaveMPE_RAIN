@@ -78,6 +78,7 @@ static volatile uint32_t ctl_pat_swap, ctl_pat_keep, ui_pat_swapped;   /* ctl_pa
 static patch_t snd_q[NTRK], snd_old[NTRK];
 static volatile uint32_t ctl_snd_swap, ui_snd_swapped;   /* ui_: the sounds came with it (snd_old holds the ones left) */
 /* ISR -> main loop: where each track is (step, and how far into it, Q8) */
+static volatile uint32_t ui_seq_tick_pass[NTRK];   /* (RAIN 48) how often each track came back to its first step */
 static volatile uint32_t ui_seq_pos[NTRK], ui_seq_frac[NTRK], ui_seq_dur[NTRK], ui_seq_ticks, ui_seq_beat, ui_seq_bar_beat;
 
 /* ---- a fresh pattern */
@@ -368,6 +369,7 @@ static void seq_tick(void)
             }
             r->cnt -= r->dur;
             r->step = r->step + 1u >= len ? 0u : r->step + 1u;
+            if (!r->step) ui_seq_tick_pass[t]++;   /* (RAIN 48) */
             sw = base * (uint32_t)(clampi(k->swing, 50, 75) - 50) / 50u;
             r->dur = r->step & 1u ? base - sw : base + sw;   /* swing: the first of each pair longer */
             if (r->dur < CTL) r->dur = CTL;

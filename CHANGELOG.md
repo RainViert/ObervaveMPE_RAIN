@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain48 – 2026-11-25
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- Undo per pass: recording, the pattern is kept before the first change of each pass of the track over its steps
+  (notes, expression, knobs, REPLACE). EDIT + OCT- takes back the last pass that changed something, the take going on;
+  EDIT + OCT+ brings it back.
+
 ## 3.5-rain47 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
