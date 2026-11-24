@@ -158,7 +158,9 @@ static part_t pt[NPART] = {{&live_p[0], 0, 0, 0, 0, 60 << 16}, {&live_p[1], 0, 0
 /* (RAIN 28/30) the drum kit's five places: a program each (the main loop loads them: kit_sync), in voices whose kp
  * is set. Their numbers are worked out only in a block where one of them sounds */
 static patch_t kit_p[NKT], kit_base[NKT];      /* (kit_base: the programs as saved; kit_p: + the kit track's knobs) */
-static volatile uint8_t kit_busy;               /* the main loop is copying kit_base: this block keeps kit_p as it was */
+static volatile uint8_t kit_busy;
+static volatile uint8_t ctl_kit[NPART][12];     /* (RAIN 31) each track's kit keys as played: 0 silent, 1..NKP a synthesized
+                                                 * drum, NKP + 1 the key's program (kit_base[NKP + pitch class]) */               /* the main loop is copying kit_base: this block keeps kit_p as it was */
 static uint8_t kit_trk;                         /* the track whose kit played last: its knobs move the drums */
 static part_t kpt[NKT];
 static uint8_t start_kp;                        /* voice_start: the piece the next voice plays (+ 1), 0 the track's sound */
@@ -277,26 +279,22 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
     const uint8_t *pv = pt[part].p->v;
     uint32_t mode = pv[P_MODE], n, i, legato = 0;
     int32_t det = (pv[P_UNI_DET] * pv[P_UNI_DET]) >> 6, spread = pv[P_SPREAD];
-    if (mode == M_KIT || mode == M_SKIT) {      /* (RAIN 28/30) the key's drum, a one-shot: KIT the synthesized one at its
-                                                 * own pitch, SNDKIT the place's program at the key's note */
-        uint32_t k, chat, ohat, at, v;
-        if (mode == M_KIT) { k = KIT_KEY_PC[note % 12u]; chat = KP_CHAT; ohat = KP_OHAT; at = KIT_NOTE[k]; }
-        else {
-            k = KIT_PC2SLOT[note % 12u];
-            if (k >= NKS) return;               /* (a key with no drum) */
-            chat = KS_CHAT; ohat = KS_OHAT; at = note; k += NKP;
-            chat += NKP; ohat += NKP;
-        }
-        if (k == chat)                          /* a closed hat cuts the open one */
+    if (mode == M_KIT || mode == M_SKIT) {      /* (RAIN 28/31) the key's drum, a one-shot: a synthesized one at its own
+                                                 * pitch, or the key's program at the key's note (main loop: ctl_kit) */
+        uint32_t pc = note % 12u, e = ctl_kit[part % NPART][pc], k, at, v;
+        if (!e) return;                         /* (a key set to OFF) */
+        if (e <= NKP) { k = e - 1u; at = KIT_NOTE[k]; }
+        else { k = NKP + pc; at = note; }
+        if (pc == 6u || pc == 8u)               /* a closed hat (F#, G#) cuts the open one (A#) */
             for (v = 0; v < NV; v++)
-                if (vc[v].kp == ohat + 1u && vc[v].part == part) vc[v].gate = 0;
+                if (vc[v].kp && vc[v].part == part && vc[v].note % 12u == 10u) vc[v].gate = 0;
         kpt[k].lfo_ph = 0;                      /* (the clap's flutter starts with the hit) */
         kit_trk = (uint8_t)part;
         v = voice_alloc(part);
         start_kp = (uint8_t)(k + 1u);
         voice_start(&vc[v], part, at, vel, 0, 0);
         start_kp = 0;
-        vc[v].note = (uint8_t)note;             /* (the key, for its light) */
+        vc[v].note = (uint8_t)note;             /* (the key: its light, the choke) */
         vc[v].grp = 0;
         return;
     }

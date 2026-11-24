@@ -3,6 +3,18 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain31 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- **Every key of a kit can be set**, in the DRUM KIT (71) and the SOUND KIT (76): hold the key and turn PRESETS: one
+  of the ten synthesized drums (KICK ... CYMBAL), any program 1-99 (not a kit), or OFF ("C: 01 DARK ARP", "F: OFF").
+  The DRUM KIT starts from its ten synthesized drums, the SOUND KIT from its five programs.
+- The kits' keys are the track's and are **kept with the MEMORY slot** (and with the settings), as the matrix; slots
+  saved before load with the kits' defaults. (rain30 kept the SOUND KIT's five places in the program: gone, they were
+  only five.)
+- A program on a key plays at the key's note, a synthesized drum at its own pitch; F# and G# cut A# (the hats).
+
 ## 3.5-rain30 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

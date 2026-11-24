@@ -23,7 +23,6 @@ enum {
 };
 #define PATCH_NAME 10u
 #define PATCH_BYTES 80u                         /* NPARAM values, the name at NPARAM, the rest spare */
-#define KIT_AT (NPARAM + PATCH_NAME)            /* (RAIN 30) a DRUM KIT's five places (obv_patches.h) */
 #if NPARAM + PATCH_NAME > PATCH_BYTES
 #error "the patch outgrew PATCH_BYTES"
 #endif

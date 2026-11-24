@@ -77,9 +77,11 @@ static struct {
     uint8_t cores2, rain18_ok;                  /* (RAIN 18) 1 = the effects on the second core, from the next power-on;
                                                  * off by default and after a start of it that failed (CHANNELS page,
                                                  * SELECT). OCT+ held at power-on: one core this time */
+    uint8_t kit[NTRK][12], kit_ok;              /* (RAIN 31) each track's kit keys (KE_*, 0 the kit's default), with the slots */
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
+#define KIT_OK 0x4Bu
 static char c1_text[40], c1_text2[40] = "SECOND CORE";                        /* (RAIN 22) the last failure in words, shown again on SELECT */
 static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
@@ -347,25 +349,34 @@ static void trk_load(uint32_t t, uint32_t n)    /* track t: program n */
 
 /* the panel's notes (keys, pads, MIDI) go to the sound the panel is on; a release goes where its note began */
 static uint8_t note_part[128];
-static uint32_t kit_prog(const patch_t *p, uint32_t k)   /* (RAIN 30) a DRUM KIT's place k: its program */
+/* (RAIN 31) a kit key's entry as it plays (KE_*: the track's own, else the kit's default) */
+static uint32_t kit_entry(uint32_t t, uint32_t pc)
 {
-    uint32_t b = p->v[KIT_AT + k];
-    return b >= 100u && b < 100u + NPROG ? b - 100u : KIT_DEF_PROG[k];
+    uint32_t e = set.kit[t % NTRK][pc % 12u];
+    if (e && e <= KE_OFF) return e;
+    return live_p[t % NTRK].v[P_MODE] == M_SKIT ? SKIT_DEF[pc % 12u] : KE_PC + KIT_KEY_PC[pc % 12u];
 }
-/* (RAIN 30) the kit's five programs into the engine (kit_base): the panel's track if it is a kit, else the first kit
- * track; again when a place changes or a program is saved */
+/* (RAIN 31) the kits into the engine: each kit track's keys (ctl_kit), and the programs on the keys of the panel's kit
+ * track (or the first one) into kit_base; again when an entry changes or a program is saved */
 static void kit_sync(void)
 {
     static uint32_t t_last, rev_had = 0xFFFFFFFFu;
-    static uint8_t had[NKS] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    static uint8_t had[NKS] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
     uint32_t t, k, kt = NTRK;
     if ((uint32_t)(fm1_ms - t_last) < 50u) return;
     t_last = fm1_ms;
-    if (live_p[seq_trk % NTRK].v[P_MODE] == M_SKIT) kt = seq_trk % NTRK;
-    else for (t = 0; t < NTRK; t++) if (live_p[t].v[P_MODE] == M_SKIT) { kt = t; break; }
+    for (t = 0; t < NTRK; t++)
+        for (k = 0; k < 12u; k++) {
+            uint32_t e = kit_entry(t, k);
+            ctl_kit[t][k] = (uint8_t)(e == KE_OFF ? 0u : e < KE_PROG ? e - KE_PC + 1u : NKP + 1u);
+        }
+    if (live_p[seq_trk % NTRK].v[P_MODE] >= M_KIT) kt = seq_trk % NTRK;
+    else for (t = 0; t < NTRK; t++) if (live_p[t].v[P_MODE] >= M_KIT) { kt = t; break; }
     if (kt == NTRK) return;
     for (k = 0; k < NKS; k++) {
-        uint32_t n = kit_prog(&live_p[kt], k);
+        uint32_t e = kit_entry(kt, k), n;
+        if (e < KE_PROG || e >= KE_OFF) continue;
+        n = e - KE_PROG;
         if (n != had[k] || prog_rev != rev_had) {
             patch_t tmp;
             prog_get(n, &tmp);
@@ -424,9 +435,16 @@ typedef struct {
     uint8_t rn[RN_N];                           /* (RAIN 5) the delays' settings with the slot: RN_* below, rn[RN_OKB] = RN_OK */
     mm_slot_t mm[NTRK][MM_N];                   /* (RAIN 9) the matrix with the slot; mm_ok = MM_OK */
     uint8_t mm_ok;
+    uint8_t kit[NTRK][12], kit_ok;              /* (RAIN 31) the kits' keys with the slot; kit_ok = KIT_OK */
 } mixset_t;
 #define MM_OK 0x6Du
 typedef struct { uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK]; mixset_t mx; } psnd_t;
+typedef struct {                                /* (RAIN 31) a slot as rain9-30 saved it: without the kits (read, never written) */
+    uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK];
+    struct { uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
+             uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp; uint8_t rn[RN_N];
+             mm_slot_t mm[NTRK][MM_N]; uint8_t mm_ok; } mx;
+} psnd_v2_t;
 typedef struct {                                /* (RAIN 9) a slot as rain5-8 saved it: without the matrix (read, never written) */
     uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK];
     struct { uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
@@ -440,6 +458,8 @@ typedef struct {                                /* (RAIN 5) a slot as saved befo
 static int slot_load_rn(uint32_t i, void *a, uint32_t na, psnd_t *b)   /* (RAIN 5) a slot of either size; an old one's rn[] zero */
 {
     if (!slot_load(i, a, na, b, sizeof *b)) return 0;
+    memset(b, 0, sizeof *b);
+    if (!slot_load(i, a, na, b, sizeof(psnd_v2_t))) { b->mx.kit_ok = 0; return 0; }   /* (RAIN 31) rain9-30's: no kits */
     memset(b, 0, sizeof *b);
     if (!slot_load(i, a, na, b, sizeof(psnd_v1_t))) {   /* (RAIN 9) rain5-8's: no matrix */
         memset(b->mx.mm, 0, sizeof b->mx.mm); b->mx.mm_ok = 0;
@@ -469,6 +489,7 @@ static void mx_from_set(mixset_t *m)
     for (t = 0; t < NTRK; t++) m->rn[RN_SEND2 + t] = set.mix_dly2[t];
     m->rn[RN_OKB] = RN_OK;
     memcpy(m->mm, set.mm, sizeof m->mm); m->mm_ok = MM_OK;   /* (RAIN 9) */
+    memcpy(m->kit, set.kit, sizeof m->kit); m->kit_ok = KIT_OK;   /* (RAIN 31) */
 }
 static void mx_to_set(const mixset_t *m)        /* into the settings and the engine */
 {
@@ -488,6 +509,8 @@ static void mx_to_set(const mixset_t *m)        /* into the settings and the eng
     }
     if (m->mm_ok == MM_OK) memcpy(set.mm, m->mm, sizeof set.mm);   /* (RAIN 9) the slot's matrix; a slot from before has none */
     else memset(set.mm, 0, sizeof set.mm);
+    if (m->kit_ok == KIT_OK) memcpy(set.kit, m->kit, sizeof set.kit);   /* (RAIN 31) the slot's kits; before: the defaults */
+    else memset(set.kit, 0, sizeof set.kit);
     mix_apply();
     rain_apply();
 }
@@ -2399,9 +2422,9 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[8] = {sizeof set, SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[9] = {sizeof set, SET_AT(kit), SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
-            for (z = 0; z < 8u; z++) {
+            for (z = 0; z < 9u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
                 if (!set_rc) { memset((uint8_t *)&set + SZ[z], 0, sizeof set - SZ[z]); break; }
             }
@@ -2452,6 +2475,7 @@ static void app_main(void)
     if (set.rain2_ok != RAIN2_OK) { set.dly_mode = 0; set.dly_ms_lo = 500u & 255u; set.dly_ms_hi = 500u >> 8; set.rain2_ok = RAIN2_OK; }
     if (set.rain10_ok != RAIN10_OK) { memset(set.mm_prog, 0, sizeof set.mm_prog); set.rain10_ok = RAIN10_OK; }   /* (RAIN 10) */
     if (set.rain18_ok != RAIN18_OK || set.cores2 > 1u) { set.cores2 = 0; set.rain18_ok = RAIN18_OK; }   /* (RAIN 18) one core */
+    if (set.kit_ok != KIT_OK) { memset(set.kit, 0, sizeof set.kit); set.kit_ok = KIT_OK; }   /* (RAIN 31) the kits' defaults */
     if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
     if (set.rain4_ok != RAIN4_OK) { set.d1_pp = 0; set.rain4_ok = RAIN4_OK; }   /* (RAIN 4) mono, as rain4 */
     if (set.rain3_ok != RAIN3_OK) {             /* (RAIN 3) DELAY 2: a dotted eighth, no sends yet */
@@ -2721,22 +2745,32 @@ static void app_main(void)
         if ((e = link_enc_take(ENC_PRESETS)) != 0 && is_seq_page(page) && seq_view == SV_SLOTS && !layer) {   /* MEMORY: PRESETS = the slot */
             mem_turn(e, 0);
             dirty_page = dirty_steps = 1;
-        } else if (e && live_p[seq_trk % NTRK].v[P_MODE] == M_SKIT && kit_key != 0xFF && KIT_PC2SLOT[kit_key % 12u] < NKS) {
-            /* (RAIN 30) a SOUND KIT, a drum's key held: PRESETS = the program on that place (not a kit) */
-            patch_t *kp = &live_p[seq_trk % NTRK], tmp;
-            uint32_t k = KIT_PC2SLOT[kit_key % 12u], n = kit_prog(kp, k), i;
+        } else if (e && live_p[seq_trk % NTRK].v[P_MODE] >= M_KIT && kit_key != 0xFF) {
+            /* (RAIN 31) a kit, a key held: PRESETS = that key's drum: the ten synthesized ones, the programs 1-99 (not a
+             * kit), OFF. Kept with the MEMORY slot */
+            static const char *const NN[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
             static char m[32];
-            static const char *const KN_[NKS] = {"KICK", "SNARE", "CLAP", "CL HAT", "OP HAT"};
-            n = (uint32_t)((int32_t)n + e + (int32_t)NPROG * 4) % NPROG;
-            { patch_t q; prog_get(n, &q); if (q.v[P_MODE] >= M_KIT) n = (uint32_t)((int32_t)n + (e > 0 ? 1 : -1) + (int32_t)NPROG) % NPROG; }   /* (no kit in a kit) */
-            kp->v[KIT_AT + k] = (uint8_t)(n + 100u);
-            trk_edited[seq_trk % NTRK] = 1;
-            prog_get(n, &tmp);
-            m[0] = 0; scat(m, KN_[k]); scat(m, ": ");
-            { char d[3] = {(char)('0' + (n + 1u) / 10u), (char)('0' + (n + 1u) % 10u), 0}; scat(m, d); }
-            scat(m, " ");
-            i = slen(m);
-            { uint32_t j; for (j = 0; j < PATCH_NAME && tmp.v[NPARAM + j] > ' '; j++) m[i++] = (char)tmp.v[NPARAM + j]; m[i] = 0; }
+            uint32_t t = seq_trk % NTRK, pc = kit_key % 12u, x = kit_entry(t, pc), i, guard = 0;
+            patch_t tmp;
+            do {                                /* step, over the kits */
+                x = (uint32_t)((int32_t)x - (int32_t)KE_PC + e + 1000 * (int32_t)(KE_OFF + 1u - KE_PC)) % (KE_OFF + 1u - KE_PC) + KE_PC;
+                if (x < KE_PROG || x >= KE_OFF) break;
+                prog_get(x - KE_PROG, &tmp);
+                e = e > 0 ? 1 : -1;
+            } while (tmp.v[P_MODE] >= M_KIT && ++guard < 200u);
+            set.kit[t][pc] = (uint8_t)x;
+            set.kit_ok = KIT_OK;
+            trk_edited[t] = 1;
+            set_dirty = 1; set_t = fm1_ms;
+            m[0] = 0; scat(m, NN[pc]); scat(m, ": ");
+            if (x == KE_OFF) scat(m, "OFF");
+            else if (x < KE_PROG) { scat(m, KIT_PC[x - KE_PC].name); scat(m, " (SYNTH)"); }
+            else {
+                char d[3] = {(char)('0' + (x - KE_PROG + 1u) / 10u), (char)('0' + (x - KE_PROG + 1u) % 10u), 0};
+                scat(m, d); scat(m, " ");
+                i = slen(m);
+                { uint32_t j; for (j = 0; j < PATCH_NAME && i < 30u && tmp.v[NPARAM + j] >= ' '; j++) m[i++] = (char)tmp.v[NPARAM + j]; while (i && m[i - 1] == ' ') i--; m[i] = 0; }
+            }
             say(m);
             dirty_hdr = dirty_page = 1;
         } else if (e) {                         /* the chosen track's sound */
