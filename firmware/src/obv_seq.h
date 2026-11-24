@@ -42,10 +42,16 @@ static int pat_xpat(void) { return pat.trk[2].pad[0] == XP_M0 && pat.trk[2].pad[
  * number the sequencer and the panel use is counted from the window's start */
 static uint32_t trk_off(uint32_t t)
 {
-    uint32_t b = pat.trk[t % NTRK].pad[1];
+    uint32_t b = pat.trk[t % NTRK].pad[1] & 0x7Fu;
     if (t % NTRK == 2u && pat_xpat()) return 0;
     return b < 16u ? b * 16u : 0u;
 }
+static uint32_t trk_rev(uint32_t t)             /* (RAIN 45) bit 7: the window backwards, from its last step to its first */
+{
+    if (t % NTRK == 2u && pat_xpat()) return 0;
+    return pat.trk[t % NTRK].pad[1] >> 7 & 1u;
+}
+static uint32_t seq_dir(uint32_t t, uint32_t i, uint32_t len) { return trk_rev(t) && len && i < len ? len - 1u - i : i; }
 static uint8_t *xtab(uint32_t s) { return (uint8_t *)&pat.st[2][0] + ((s + trk_off(0)) % SEQ_STEPS) * 16u; }
 _Static_assert(NTRK == 4u && sizeof pat.st[2] + sizeof pat.st[3] >= SEQ_STEPS * 16u, "MPE table: C and D's steps, one after the other");
 static step_t seq_xblank;
@@ -214,7 +220,7 @@ static uint32_t seq_q8_now(uint32_t t)
     if (!len || !ctl_seq_run) return 0xFFFFFFFFu;
     if (seq_starting() || step == 0xFFFFFFFFu || !dur) return 0;
     if (cnt >= dur) { cnt -= dur; step = step + 1u >= len ? 0u : step + 1u; }
-    return (step % len) * 256u + (cnt * 256u / dur > 255u ? 255u : cnt * 256u / dur);
+    return seq_dir(t, step % len, len) * 256u + (cnt * 256u / dur > 255u ? 255u : cnt * 256u / dur);   /* (RAIN 45: backwards) */
 }
 static void mx_swap_in(void)                    /* (ISR, inside the pattern swap) */
 {
@@ -365,8 +371,8 @@ static void seq_tick(void)
             sw = base * (uint32_t)(clampi(k->swing, 50, 75) - 50) / 50u;
             r->dur = r->step & 1u ? base - sw : base + sw;   /* swing: the first of each pair longer */
             if (r->dur < CTL) r->dur = CTL;
-            s = seq_step(t, r->step);
-            seq_auto(t, r->step);
+            s = seq_step(t, seq_dir(t, r->step, len));   /* (RAIN 45) a window backwards: from its end */
+            seq_auto(t, seq_dir(t, r->step, len));
             TRACE('T', t, r->step * 1000000u + (s->note[0] ? (uint32_t)s->note[0] * 1000u : 0u) + (s->note[1] ? 900u : 0u) + (s->gate >= GATE_TIE ? 1u : 0u));
             r->play = s->note[0] && !(s->ratch & STEP_OFF) && (s->chance >= 100u || xorshift(&rnd_state) % 100u < s->chance);
             r->wait = NO_WAIT;
@@ -393,7 +399,7 @@ static void seq_tick(void)
             }
             ui_seq_ticks++;
         } else {
-            s = seq_step(t, r->step < len ? r->step : 0u);
+            s = seq_step(t, r->step < len ? seq_dir(t, r->step, len) : 0u);
             if (r->wait != NO_WAIT && r->cnt >= r->wait) { r->wait = NO_WAIT; r->hold_end = 0; seq_release_t(t); seq_sound(t, s, k->transp); }   /* a nudged step: now */
             else if (r->wait == NO_WAIT && r->play && r->rat_n > 1u && r->sub) {   /* a ratchet: the next hit */
                 uint32_t i = (r->cnt - r->on_at) / r->sub;
@@ -405,7 +411,7 @@ static void seq_tick(void)
             seq_release_t(t);
         r->cnt += CTL;
         ui_seq_dur[t] = r->dur;
-        ui_seq_pos[t] = r->step;
+        ui_seq_pos[t] = seq_dir(t, r->step, len);
         ui_seq_frac[t] = r->dur ? r->cnt * 256u / r->dur : 0u;
     }
 }

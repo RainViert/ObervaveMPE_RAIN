@@ -3,6 +3,16 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain45 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- The bars with SELECT held, one key after the other: the first white key is the first bar ("FROM BAR 6 TO ?"), the
+  next one the last. The same key twice: that bar alone. A last bar before the first: the track plays its window
+  backwards (6 then 3: bars 6, 5, 4, 3, each from its last step). One key and SELECT let go: bars 1 to it.
+- The bars shown: the tracks' rows say where a track is in its real bars ("7/3-11"; backwards "<7/11-3"; bars 1-n as
+  before "2/4"), not playing their window ("PLAY 3-11"); recording the same.
+
 ## 3.5-rain44 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
