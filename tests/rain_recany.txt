@@ -1,0 +1,14 @@
+# (RAIN 40) MIDI CH 1 (GLOBAL), track B chosen, REC armed: notes on channel 5 (none of B's) are recorded on B (RECORD: MIDI IN ALL CH); PLAY again: they play
+3000 midi 0xC1 70 0
+3100 btn 7
+3200 enc 4 1
+3500 enc 1 1
+4000 btn 11
+4200 btn 13
+4500 midi 0x94 48 110
+4560 midi 0x84 48 0
+5000 midi 0x94 50 110
+5060 midi 0x84 50 0
+6400 btn 12
+7000 btn 12
+9000 end

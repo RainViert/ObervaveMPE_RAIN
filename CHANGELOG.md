@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain40 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- RECORD page, knob 3 MIDI IN: ALL CH (new, the default): while REC is armed or recording, a note on any MIDI channel
+  plays and records on the track recording (track A with MPE: its member channels as before, with their expression).
+  OWN CH: as before, each track its own channel.
+
 ## 3.5-rain39 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
