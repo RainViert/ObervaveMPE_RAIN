@@ -3,6 +3,19 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain37 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- MPE patterns: recording MPE on track A while tracks C and D are empty makes the pattern one ("MPE PATTERN"). Tracks
+  C and D's steps then hold A's notes' own expression: bend, pressure and slide per note (up to four on a step), one
+  value per step, held until the next. Playing back, each note bends and breathes on its own, as played. Track B stays
+  a normal track (drums); the four sounds stay as they are, live and over MIDI.
+- In an MPE pattern C and D play nothing and take no steps; choosing them says so. REC held 1.2 s on A, C or D ends
+  the MPE pattern (C and D empty tracks again). With C or D in use, the expression goes into A's lanes for the whole
+  track (rain36).
+- A pattern stays the same size: slots keep their format.
+
 ## 3.5-rain36 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

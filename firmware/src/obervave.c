@@ -862,6 +862,37 @@ static void xrec(uint32_t t, uint32_t x, int32_t val)
     if (t % NTRK != seq_trk % NTRK || !rec_keys()) return;
     lane_rec(t, AUTO_XB + x, (uint32_t)clampi(val, 0, 254));
 }
+/* (RAIN 37) an MPE pattern: recording MPE on track A while C and D are empty makes the pattern one (C and D's steps then
+ * hold A's notes' expression); else the expression goes into A's lanes (one for the track, RAIN 36) */
+static uint8_t xch_note[16];                    /* the note each member channel plays */
+static int xpat_ready(void)
+{
+    uint32_t t, i;
+    if (rec != REC_ON || !ctl_seq_run || seq_trk % NTRK || !rec_keys() || !pat.trk[0].len || !(ctl_trk_on & 1u)) return 0;
+    if (pat_xpat()) return 1;
+    for (t = 2; t < NTRK; t++) for (i = 0; i < SEQ_STEPS; i++) if (pat.st[t][i].note[0]) return 0;   /* (C or D in use) */
+    for (t = 2; t < NTRK; t++) for (i = 0; i < NLANE; i++) lane_clear(&pat.lane[t][i]);
+    memset(&pat.st[2][0], 0, sizeof pat.st[2] + sizeof pat.st[3]);
+    pat.trk[2].pad[0] = XP_M0; pat.trk[2].pad[1] = XP_M1;
+    pat_edited = 1;
+    say("MPE PATTERN: C+D HOLD A'S MPE");
+    return 1;
+}
+static void xnote(uint32_t c, uint32_t f, int32_t val)   /* channel c's note: bend (f 0), pressure (1), slide (2) here */
+{
+    uint32_t n = xch_note[c & 15u], k, f0 = 4u;
+    uint8_t *e;
+    if (!n) return;
+    if (!xpat_ready()) { if (xrec_ch == c + 1u) xrec(0, f, val); return; }   /* (RAIN 36: for the track) */
+    e = xtab(ui_seq_pos[0] % pat.trk[0].len);
+    for (k = 0; k < 4u; k++) { if (e[k * 4u] == n) break; if (f0 == 4u && !e[k * 4u]) f0 = k; }
+    if (k == 4u) {                              /* (a fifth note on one step: not kept) */
+        if (f0 == 4u) return;
+        k = f0; e[k * 4u] = (uint8_t)n; e[k * 4u + 1u] = e[k * 4u + 2u] = e[k * 4u + 3u] = 0xFFu;
+    }
+    e[k * 4u + 1u + f] = (uint8_t)clampi(val, 0, 254);
+    pat_edited = 1;
+}
 static void auto_poll(void)                     /* (main loop) a lane let go: the player has it again */
 {
     uint32_t t, l;
@@ -2295,15 +2326,16 @@ static void midi_in(uint32_t notes_only)
             if (kind == 0x90u && d2) {
                 note_event_ch(0, 1, d1, d2, c); rec_from(0, 1, d1, d2);
                 xrec_ch = (uint8_t)(c + 1u);    /* (RAIN 36) its expression is the one recorded; its bend from where it starts */
-                if (mpe_bend[c] || xlane_has(0, AUTO_XB)) xrec(0, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
+                xch_note[c] = (uint8_t)d1;      /* (RAIN 37) */
+                if (mpe_bend[c] || (!pat_xpat() && xlane_has(0, AUTO_XB))) xnote(c, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
             }
             else if (kind == 0x80u || kind == 0x90u) { note_event_ch(0, 0, d1, 0, c); rec_from(0, 0, d1, 0); }
             else if (kind == 0xE0u) {
                 mpe_bend[c] = (int16_t)((int32_t)(d1 | d2 << 7) - 8192);
-                if (xrec_ch == c + 1u) xrec(0, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
+                xnote(c, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
             }
-            else if (kind == 0xD0u) { mpe_press[c] = (uint8_t)d1; if (xrec_ch == c + 1u) xrec(0, 1, d1); }
-            else if (kind == 0xB0u && d1 == 74u) { mpe_slide[c] = (int8_t)((int32_t)d2 - 64); if (xrec_ch == c + 1u) xrec(0, 2, d2); }
+            else if (kind == 0xD0u) { mpe_press[c] = (uint8_t)d1; xnote(c, 1, d1); }
+            else if (kind == 0xB0u && d1 == 74u) { mpe_slide[c] = (int8_t)((int32_t)d2 - 64); xnote(c, 2, d2); }
             continue;                           /* (a member's other messages: none of the track's) */
         }
         if (ctl_mpe_range) ;                    /* (channel 1, the MPE master: track A's as ever) */
@@ -2366,7 +2398,8 @@ static void trk_select(uint32_t t)
     t %= NTRK;
     if (t != seq_trk) { seq_trk = t; step_held = -1; audition_off(); entry_reset(); }
     msg[0] = 0; scat(msg, "TRACK "); msg[6] = TRK_L[t]; msg[7] = 0;
-    if (!pat.trk[t].len) scat(msg, is_seq_page(page) && seq_view == SV_TRACKS ? " OFF: " NM_K3 " = ON" : " OFF: " NM_K1 " = ON");
+    if (t >= 2u && pat_xpat()) scat(msg, ": A'S MPE (REC HELD: FREE)");   /* (RAIN 37) */
+    else if (!pat.trk[t].len) scat(msg, is_seq_page(page) && seq_view == SV_TRACKS ? " OFF: " NM_K3 " = ON" : " OFF: " NM_K1 " = ON");
     say(msg);
     dirty_page = dirty_steps = dirty_tags = dirty_hdr = 1;
 }
@@ -2432,6 +2465,10 @@ static void trk_clear(void)
     static char m[20];
     uint32_t n;
     undo_save();
+    if (pat_xpat() && seq_trk % NTRK != 1u) {   /* (RAIN 37) A, C or D: the MPE pattern ends, C and D are tracks again */
+        pat.trk[2].pad[0] = pat.trk[2].pad[1] = 0;
+        for (n = 0; n < SEQ_STEPS; n++) { step_clear(&pat.st[2][n]); step_clear(&pat.st[3][n]); }
+    }
     for (n = 0; n < pat.trk[seq_trk].len; n++) step_clear(seq_step(seq_trk, n));
     for (n = 0; n < NLANE; n++) lane_clear(&pat.lane[seq_trk % NTRK][n]);
     pat_edited = 1;

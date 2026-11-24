@@ -33,7 +33,20 @@ typedef struct { uint8_t param, pad[3]; uint8_t v[SEQ_STEPS]; } lane_t;
 typedef struct { uint32_t magic; seqtrk_t trk[NTRK]; step_t st[NTRK][SEQ_STEPS]; uint32_t auto_magic; lane_t lane[NTRK][NLANE]; } pattern_t;
 
 static pattern_t pat;                           /* the pattern now: the main loop edits, the ISR plays */
-static step_t *seq_step(uint32_t t, uint32_t i) { return &pat.st[t % NTRK][i % SEQ_STEPS]; }
+/* (RAIN 37) an MPE pattern: tracks C and D's steps hold track A's notes' expression, per step four notes x
+ * (note, bend, pressure, slide); C and D are empty then (their steps: a blank one, written into in vain) */
+#define XP_M0 0xE7u
+#define XP_M1 0x5Au
+static int pat_xpat(void) { return pat.trk[2].pad[0] == XP_M0 && pat.trk[2].pad[1] == XP_M1; }
+static uint8_t *xtab(uint32_t s) { return (uint8_t *)&pat.st[2][0] + (s % SEQ_STEPS) * 16u; }
+_Static_assert(NTRK == 4u && sizeof pat.st[2] + sizeof pat.st[3] >= SEQ_STEPS * 16u, "MPE table: C and D's steps, one after the other");
+static step_t seq_xblank;
+static void step_clear(step_t *s);
+static step_t *seq_step(uint32_t t, uint32_t i)
+{
+    if (t % NTRK >= 2u && pat_xpat()) { step_clear(&seq_xblank); return &seq_xblank; }
+    return &pat.st[t % NTRK][i % SEQ_STEPS];
+}
 
 /* main loop -> ISR */
 static volatile uint32_t ctl_seq_run, ctl_seq_restart;
@@ -83,6 +96,7 @@ static void pat_init(pattern_t *p)
         p->trk[t].swing = 50;
         p->trk[t].transp = 0;
         p->trk[t].mute = 0;
+        p->trk[t].pad[0] = p->trk[t].pad[1] = 0;   /* (RAIN 37: not an MPE pattern) */
         p->trk[t].pad[0] = p->trk[t].pad[1] = 0;
     }
 }
@@ -213,6 +227,11 @@ static volatile uint32_t ctl_auto_hold[NTRK];   /* main loop: bit l = lane l of 
 static void seq_auto(uint32_t t, uint32_t i)
 {
     uint32_t l, on = 0;
+    if (!t) {                                   /* (RAIN 37) an MPE pattern: the notes' expression on this step */
+        uint32_t k, x = (uint32_t)pat_xpat();
+        if (x) { const uint8_t *e = xtab(i); for (k = 0; k < 16u; k++) ctl_nx[k >> 2][k & 3u] = e[k]; }
+        ctl_nx_on = (uint8_t)x;
+    }
     for (l = 0; l < NLANE; l++) {
         const lane_t *a = &pat.lane[t][l];
         uint8_t v = a->v[i % SEQ_STEPS];
@@ -323,7 +342,7 @@ static void seq_tick(void)
         const seqtrk_t *k = &pat.trk[t];
         const step_t *s;
         uint32_t len = k->len;
-        if (!len || !(ctl_trk_on >> t & 1u)) { seq_release_t(t); r->tie = 0; r->wait = NO_WAIT; r->hold_end = 0; continue; }
+        if (!len || !(ctl_trk_on >> t & 1u) || (t >= 2u && pat_xpat())) { seq_release_t(t); r->tie = 0; r->wait = NO_WAIT; r->hold_end = 0; continue; }
         if (r->cnt >= r->dur) {                 /* the next step */
             uint32_t dv = DIV_PER_QUARTER[k->div % NDIV], base = q / dv, sw, carry = 0;
             r->frac += q % dv;                  /* (the rest of q spread over the steps: div steps are exactly a quarter) */
