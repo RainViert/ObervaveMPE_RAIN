@@ -2468,14 +2468,13 @@ static void app_main(void)
                 char *t = c1_text2;
                 uint32_t q, n = 0, v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.pc : 0u;
                 for (q = 0; q < 8u; q++) t[n++] = HX[v >> (28u - 4u * q) & 15u];
-                t[n++] = ' '; t[n++] = 'V'; t[n++] = HX[(fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.vec : 0u) & 15u];
-                v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.emu : 0u;
-                t[n++] = ' '; t[n++] = 'E'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
                 v = fm1_boot.p3_rst;
                 t[n++] = ' '; t[n++] = 'R'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
                 t[n++] = ' '; t[n++] = 'S'; t[n++] = (char)('0' + c1_last_stage / 10u % 10u); t[n++] = (char)('0' + c1_last_stage % 10u);   /* (RAIN 25) how far it got */
                 t[n++] = ' '; t[n++] = 'J';
                 for (q = 0; q < 6u; q++) t[n++] = HX[c1_last_jobs >> (20u - 4u * q) & 15u];
+                t[n++] = ' '; t[n++] = 'U'; t[n++] = HX[c1_supplies >> 8 & 15u]; t[n++] = HX[c1_supplies & 15u];   /* (RAIN 27)
+                                                 * the supplies' codes: 7F = VDC14 1.60 V, SYSVDD 1.38 V */
                 t[n] = 0;
             }
 #endif

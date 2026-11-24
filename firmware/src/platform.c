@@ -47,7 +47,7 @@ static int host_c1 = -1;
 static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"); host_c1 = e && e[0] == '2'; } return host_c1; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
 static int cpu1_wait(void) { return 0; }
-static uint32_t c1_msg, c1_last_stage, c1_last_jobs;
+static uint32_t c1_msg, c1_last_stage, c1_last_jobs, c1_supplies;
 static uint8_t c1_tries, c1_reached;
 static uint8_t cpu1_bad;                       /* (RAIN 18) OBV_C1BAD=1: as a device whose second core failed */
 static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] >= '1' && e[0] <= '4' ? (uint8_t)(e[0] - '0') : 0; }
@@ -525,7 +525,7 @@ static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
  * answered, 3 a job in RAM done, 4 the self-test in flash done, 5 running the effects; jobs = blocks it finished */
 #define C1D_MAGIC 0x43314447u
 struct { uint32_t magic, stage, jobs, spare; } c1_diag __attribute__((section(".noinit.c1diag")));
-static uint32_t c1_last_stage, c1_last_jobs;    /* the record as this boot found it (the CHANNELS page) */
+static uint32_t c1_last_stage, c1_last_jobs, c1_supplies;   /* the record as this boot found it (the CHANNELS page) */
 __attribute__((section(".c1_text.t"))) static void c1_ramtest(uint32_t a) { c1_test_out = a ^ 0x5A5A5A5Au; }
 static void c1_stage(uint32_t st) { c1_diag.magic = C1D_MAGIC; c1_diag.stage = st; fm1_cpu1_sync(); }
 static void c1_diag_step(uint32_t n) { c1_stage(n); }
@@ -535,6 +535,7 @@ static void cpu1_boot(void)
     c1_last_stage = c1_diag.magic == C1D_MAGIC ? c1_diag.stage : 0u;
     c1_last_jobs = c1_diag.magic == C1D_MAGIC ? c1_diag.jobs : 0u;
     c1_diag.magic = C1D_MAGIC; c1_diag.stage = 0; c1_diag.jobs = 0;
+    c1_supplies = fm1_vdc14() << 8 | fm1_sysvdd();   /* (RAIN 27) VDC14 7 = 1.60 V, SYSVDD 15 = 1.38 V (Clipper's ABOUT) */
     if ((p3 & 1u) && !(p3 & (4u | 0x40u)))     /* (RAIN 25) a real power-on: no mark from before counts (the RAM keeps
                                                  * them through a short one) */
         fm1_c1_bar.barred = 0;
@@ -556,8 +557,9 @@ static void cpu1_boot(void)
          * get 300 ms to settle, then up to three tries 100 ms apart */
         uint32_t t0 = fm1_ticks(), tries;
         int rc = -1;
-        while ((uint32_t)(fm1_ticks() - t0) < 300u * 1000u * FM1_TICKS_PER_US)
+        while ((uint32_t)(fm1_ticks() - t0) < 3000u * 1000u * FM1_TICKS_PER_US)   /* (RAIN 27) 3 s, as Clipper's splash */
             fm1_wdt_feed();
+        c1_diag.spare = fm1_vdc14() << 8 | fm1_sysvdd();   /* (RAIN 27) the supplies as the start finds them */
         for (tries = 0; tries < 3u && rc != 0; tries++) {
             if (tries) {
                 t0 = fm1_ticks();

@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain27 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release. A diagnosis build.
+
+- rain26: S15 (the start hung waiting for the second core's answer), then 1C-2.0 (no answer, it never ran): not
+  the screen or the inputs. rain27 waits 3 s before the start (as Clipper, whose second core runs on that unit,
+  after its splash) and shows the two supplies' codes on the CHANNELS page (U7F = VDC14 1.60 V, SYSVDD 1.38 V).
+
 ## 3.5-rain26 – 2026-11-24
 
 A personal variant (RainViert/Obervave-MPE_RAIN), not an official OberVave release. A diagnosis build.
