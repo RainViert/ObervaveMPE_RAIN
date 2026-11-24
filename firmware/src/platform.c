@@ -525,7 +525,7 @@ static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
 struct { uint32_t magic, stage, jobs, spare; } c1_diag __attribute__((section(".noinit.c1diag")));
 static uint32_t c1_last_stage, c1_last_jobs;    /* the record as this boot found it (the CHANNELS page) */
 __attribute__((section(".c1_text.t"))) static void c1_ramtest(uint32_t a) { c1_test_out = a ^ 0x5A5A5A5Au; }
-static void c1_stage(uint32_t st) { c1_diag.magic = C1D_MAGIC; c1_diag.stage = st; FM1_C1_SYNC(); }
+static void c1_stage(uint32_t st) { c1_diag.magic = C1D_MAGIC; c1_diag.stage = st; fm1_cpu1_sync(); }
 static void cpu1_boot(void)
 {
     uint32_t p3 = fm1_boot.p3_rst;

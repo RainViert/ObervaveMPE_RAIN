@@ -40,6 +40,7 @@
 #define FM1_C1_CLK (*(volatile uint32_t *)0x00010008u)
 #define FM1_C1_T4 (*(volatile uint32_t *)0x10804u)       /* TIMER4, 24 MHz */
 #define FM1_C1_SYNC() __asm__ volatile("csync" ::: "memory")
+static void fm1_cpu1_sync(void) { FM1_C1_SYNC(); }   /* (RAIN 25) for the app: its writes seen by the other core */
 
 extern void fm1_c1_entry(void);
 extern uint32_t _c1_ustack[], _c1_sstack_top[];
