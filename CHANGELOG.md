@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain33 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- Kits (DRUM KIT 71, SOUND KIT 76): each key can be tuned. Hold the key and turn ALGORITHM: -24..+24 semitones
+  ("C TUNE +5"). Per track, kept with the settings and the MEMORY slot (slots from rain31-32 load untuned).
+- Includes rain32's output leveller.
+
 ## 3.5-rain32 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
