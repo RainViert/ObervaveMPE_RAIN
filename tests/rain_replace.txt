@@ -1,4 +1,4 @@
-# (RAIN 38) REC REPLACE: four hits recorded (OVERDUB), then GLO to RECORD, REC = REPLACE, one hit over a whole bar: only it is left
+# (RAIN 38) REC REPLACE: four hits recorded (OVERDUB), then SELECT + REC: RECORD, REC = REPLACE, one hit over a whole bar: only it is left
 3000 midi 0xC0 70 0
 4000 btn 11
 4200 btn 13
@@ -11,11 +11,9 @@
 6000 midi 0x90 50 110
 6060 midi 0x80 50 0
 6500 btn 12
-6700 btn 7
-6750 btn 7
-6800 btn 7
-6850 btn 7
-6900 btn 7
+6700 btndown 3
+6750 btn 13
+6800 btnup 3
 7000 enc 2 1
 7100 shot
 7200 btn 11

@@ -1230,7 +1230,7 @@ static void draw_page(void)
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
         } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) how REC records */
-            static const char *const RCL[4] = {"REC", "MPE REC", "MIDI IN", ""};
+            static const char *const RCL[4] = {"REC", "MPE", "MIDI IN", ""};
             k[i].label = RCL[i];
             k[i].present = i < 3u;
             if (!i) { scat(k[i].value, set.rec_mode ? "REPLACE" : "OVERDUB"); k[i].v = set.rec_mode; k[i].max = 1; }
@@ -2846,7 +2846,7 @@ static void app_main(void)
                         } else if (LL[k] == L_EDIT && is_seq_page(page) && SV_ENTRY(seq_view)) seq_clear_cursor();
                         else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC1, 6);
                         else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 7);   /* (RAIN: + DELAY +, DELAY 2, DELAY 2 +) */
-                        else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : page >= PG_OUTPUT && page < PG_GLOBAL ? page + 1u : PG_GLOBAL;   /* (RAIN: GLOBAL, OUTPUT, MPE, MPE + CHANNELS) */
+                        else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : page >= PG_OUTPUT && page < PG_MPE2 ? page + 1u : PG_GLOBAL;   /* (RAIN 46: RECORD not in the round: SELECT + REC) */   /* (RAIN: GLOBAL, OUTPUT, MPE, MPE + CHANNELS) */
                         else if (is_seq_page(page) && seq_view == SV_SLOTS) { mem_do(); entry_reset(); }   /* MEMORY: SAVE does it */
                         else {                  /* SAVE tapped: MEMORY (the full-screen sequencer's last view) */
                             if (!is_seq_page(page)) { seq_back = page; np = PG_SEQ; }
@@ -2916,6 +2916,9 @@ static void app_main(void)
                 ctl_seq_restart = 1; ctl_seq_run = 1;
             }
             dirty_tags = dirty_steps = 1;
+        }
+        if ((b & (1u << BTN_REC)) && (fm1_in.buttons >> BTN_SEL & 1u) && !layer) {   /* (RAIN 46) SELECT + REC: the RECORD page */
+            np = PG_RECSET; sel_used = 1; sel_first = 0; b &= ~(1u << BTN_REC);
         }
         if (b & (1u << BTN_REC)) { rec_down = 1; rec_down_t = fm1_ms; }   /* REC acts when let go; held 1.2 s it clears the track */
         if (rec_down && fm1_ms - rec_down_t > 1200u) {
@@ -3212,7 +3215,7 @@ static void app_main(void)
         fm1_led_key(BTN_ENV, page == PG_FENV || page == PG_AENV);
         fm1_led_key(BTN_LFO, page >= PG_LFO && page <= PG_MATRIX);
         fm1_led_key(BTN_FX, page >= PG_CHORUS && page <= PG_DRIVE);
-        fm1_led_key(BTN_GLO, page >= PG_OUTPUT && page <= PG_GLOBAL);
+        fm1_led_key(BTN_GLO, page >= PG_OUTPUT && page <= PG_GLOBAL && page != PG_RECSET);
         fm1_led_key(BTN_SAVE, (is_seq_page(page) && seq_view == SV_SLOTS) || pend_slot);
 #if BOARD_SMK37
         smk_leds();                             /* the step pads, FADER BANK, < > */

@@ -1,4 +1,4 @@
-# (RAIN 38) MPE REC = TRACK (GLO RECORD, knob 2): the same chord as rain_xpat, the expression for the whole track: both notes follow the one played last
+# (RAIN 38) MPE REC = TRACK (SELECT + REC: RECORD, knob 2): the same chord as rain_xpat, the expression for the whole track: both notes follow the one played last
 3000 midi 0xC0 42 0
 3100 btn 7
 3200 btn 7
@@ -25,7 +25,9 @@
 3715 enc 3 1
 3720 enc 3 1
 3800 shot
-3900 btn 7
+3900 btndown 3
+3910 btn 13
+3920 btnup 3
 3950 enc 3 1
 4000 btn 11
 4200 btn 13
