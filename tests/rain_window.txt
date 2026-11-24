@@ -1,23 +1,38 @@
-# (RAIN 44) a hit recorded on bar 1 (A, DRUM KIT); SELECT + white keys 2 and 3 held together: A plays bars 2-3 (silent); SELECT + keys 1 and 2: bars 1-2, the hit again
+# (RAIN 44/45) hits recorded on steps 1 (C) and 5 (D) of bar 1 (A, DRUM KIT): SELECT + key 2, key 3: bars 2-3 (silent);
+# SELECT + key 1, key 1: bar 1 alone (C, D); SELECT + key 2, key 1: bars 2-1 backwards (D before C, then silence)
 3000 midi 0xC0 70 0
 4000 btn 11
 4200 btn 13
 4500 midi 0x90 48 110
 4560 midi 0x80 48 0
+5000 midi 0x90 50 110
+5060 midi 0x80 50 0
 6400 btn 12
 6600 btndown 3
-6700 keys 0x4
-6800 keys 0x14
-6900 keys 0
-7000 btnup 3
-7100 shot
+6650 keys 0x4
+6700 keys 0
+6750 keys 0x10
+6800 keys 0
+6900 btnup 3
+7000 shot
 7200 btn 12
-11200 btn 12
-11400 btndown 3
-11500 keys 0x1
-11600 keys 0x5
-11700 keys 0
-11800 btnup 3
-11900 shot
-12000 btn 12
-16000 end
+9200 btn 12
+9400 btndown 3
+9450 keys 0x1
+9500 keys 0
+9550 keys 0x1
+9600 keys 0
+9700 btnup 3
+9800 btn 12
+11800 btn 12
+12000 btndown 3
+12050 keys 0x4
+12100 keys 0
+12150 keys 0x1
+12200 keys 0
+12300 btnup 3
+12400 shot
+12500 btn 12
+13000 shot
+15000 shot
+16500 end

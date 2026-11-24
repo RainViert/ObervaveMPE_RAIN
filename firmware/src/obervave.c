@@ -1960,13 +1960,24 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
 }
 
 /* (RAIN 39) the bar the track plays, of how many ("2/4"), while it records: as PLAY shows it */
+/* (RAIN 45) a track's bars as the panel shows them: "3/4" (bar 3 of bars 1-4), a window "7/3-11", backwards "<7/11-3";
+ * ph < 0: not playing, the window alone ("3-11", "<11-3"; bars 1-n: "") */
+static void bars_txt(char *b, uint32_t t, int32_t ph)
+{
+    uint32_t len = pat.trk[t % NTRK].len, lo = trk_off(t) / 16u + 1u, hi = lo + (len + 15u) / 16u - 1u, rv = trk_rev(t);
+    b[0] = 0;
+    if (!len) return;
+    if (rv) scat(b, "<");
+    if (ph >= 0) { fmt_u(b + slen(b), lo + (uint32_t)ph / 16u); scat(b, "/"); }
+    if (lo == 1u && !rv) { if (ph >= 0) fmt_u(b + slen(b), hi); return; }
+    fmt_u(b + slen(b), rv ? hi : lo); scat(b, "-"); fmt_u(b + slen(b), rv ? lo : hi);
+}
 static const char *rec_bar(uint32_t t)
 {
-    static char b[12];
-    uint32_t len = pat.trk[t % NTRK].len, ph = len ? ui_seq_pos[t % NTRK] % len : 0u;
-    b[0] = 0;
-    if (!ctl_seq_run || !len || ctl_count) { scat(b, "REC"); return b; }
-    fmt_u(b, ph / 16u + 1u); scat(b, "/"); fmt_u(b + slen(b), (len + 15u) / 16u);
+    static char b[16];
+    uint32_t len = pat.trk[t % NTRK].len;
+    if (!ctl_seq_run || !len || ctl_count) { b[0] = 0; scat(b, "REC"); return b; }
+    bars_txt(b, t, (int32_t)(ui_seq_pos[t % NTRK] % len));
     return b;
 }
 /* the full screen: what to draw (the main loop calls these when something changed) */
@@ -2138,9 +2149,13 @@ static void draw_seq_tracks(void)
             ui_seq_track_row(t, 1, ti, C_CREAM, rec_wait ? "NEXT" : rec_bar(t), C_RED, w0, ph);
         else
         {
-        static char bb[NTRK][8];                /* playing, longer than a bar: which bar of how many */
+        static char bb[NTRK][16];                /* playing, longer than a bar: which bar of how many */
         const char *stt = ST[st];
-        if (st == 1u && ph >= 0 && len > 16u) { bb[t][0] = 0; fmt_u(bb[t], (uint32_t)ph / 16u + 1u); scat(bb[t], "/"); fmt_u(bb[t] + slen(bb[t]), (len + 15u) / 16u); stt = bb[t]; }
+        if (st == 1u && ph >= 0 && (len > 16u || trk_off(t) || trk_rev(t))) { bars_txt(bb[t], t, ph); stt = bb[t]; }   /* (RAIN 45) */
+        else if ((st != 1u || ph < 0) && len && (trk_off(t) || trk_rev(t))) {   /* (RAIN 45) not playing: its window too */
+            static char sw[NTRK][16];
+            sw[t][0] = 0; scat(sw[t], stt); scat(sw[t], " "); bars_txt(sw[t] + slen(sw[t]), t, -1); stt = sw[t];
+        }
         ui_seq_track_row(t, t == seq_trk, ti, len ? C_CREAM : C_DIMT, trk_silent(t) ? "MUTE" : !set.mix_lvl[t] ? "LVL 0" : len ? stt : "OFF",
                          !set.mix_lvl[t] ? C_RED : st >= 2u ? C_AMBER : st ? C_GREEN : C_DIMT, w0, ph);
         }
@@ -2271,11 +2286,11 @@ static uint32_t cycle_page(uint32_t first, uint32_t count)   /* a button steps t
     return first;
 }
 
-/* (RAIN 43) SELECT held + a white key: the chosen track plays bars 1 to that key's (the 16 white keys: 1-16 bars);
- * (RAIN 44) a second white key with the first still held: from the one bar to the other (3-11: only those, the
- * steps outside stay as they are) */
+/* (RAIN 43-45) SELECT held + white keys (1-16 bars): the first key the window's first bar, the next its last (the
+ * same key twice: that bar alone; a last before the first: the window backwards). One key and SELECT let go: bars 1
+ * to it. The steps outside the window stay as they are */
 static uint32_t sel_used;                       /* a key used with SELECT held: its page's own SELECT is not done */
-static uint32_t sel_first;                      /* the bar of the white key held first with SELECT (0: none) */
+static uint32_t sel_first;                      /* the bar of the first white key with SELECT held (0: none yet) */
 static uint32_t white_bar(uint32_t k)           /* key k's place among the white keys, 1..16 (0: a black key) */
 {
     uint32_t j, n = 0, q = (5u + k) % 12u;
@@ -2283,24 +2298,36 @@ static uint32_t white_bar(uint32_t k)           /* key k's place among the white
     for (j = 0; j <= k; j++) { q = (5u + j) % 12u; if (!(q == 1u || q == 3u || q == 6u || q == 8u || q == 10u)) n++; }
     return n <= 16u ? n : 0u;
 }
-static void sel_len_key(uint32_t k)
+static void bars_set(uint32_t a, uint32_t b)    /* track seq_trk plays bars a..b (b < a: backwards) */
 {
     static char m[28];
-    uint32_t n = white_bar(k), a = 1, b, t = seq_trk % NTRK;
-    sel_used = 1;
-    if (!n) return;
-    b = n;
-    if (sel_first && sel_first != n) { a = sel_first < n ? sel_first : n; b = sel_first < n ? n : sel_first; }
-    else sel_first = n;
-    pat.trk[t].pad[1] = (uint8_t)(a - 1u);
-    pat.trk[t].len = (uint16_t)((b - a + 1u) * 16u);
+    uint32_t t = seq_trk % NTRK, lo = a < b ? a : b, hi = a < b ? b : a, rv = b < a;
+    pat.trk[t].pad[1] = (uint8_t)((lo - 1u) | (rv ? 0x80u : 0u));
+    pat.trk[t].len = (uint16_t)((hi - lo + 1u) * 16u);
     if (seq_cur[t] >= pat.trk[t].len) seq_cur[t] = pat.trk[t].len - 1u;
     if (seq_pg[t] >= seq_pages(t)) seq_pg[t] = seq_pages(t) - 1u;
     pat_edited = 1;
     m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": BAR ");
     fmt_u(m + slen(m), a);
     if (b != a) { scat(m, "-"); fmt_u(m + slen(m), b); }
+    if (rv) scat(m, " BACKWARDS");
     say(m);
+    dirty_steps = dirty_page = dirty_tags = 1;
+}
+static void sel_len_key(uint32_t k)
+{
+    static char m[28];
+    uint32_t n = white_bar(k);
+    sel_used = 1;
+    if (!n) return;
+    if (!sel_first) {                           /* the first bar: shown, set with the next key (or SELECT let go) */
+        sel_first = n;
+        m[0] = 0; scat(m, "FROM BAR "); fmt_u(m + slen(m), n); scat(m, " TO ?");
+        say(m);
+        return;
+    }
+    bars_set(sel_first, n);
+    sel_first = 0;
 }
 static void keys_in(uint32_t notes_only)
 {
@@ -2333,7 +2360,6 @@ static void keys_in(uint32_t notes_only)
             keys_prev &= ~(1u << k);
             if (key_step[k] == 2u) erase_on[(uint32_t)clampi((int32_t)held_key[k] - pat.trk[seq_trk].transp, 1, 127)] = 0;
             else if (key_step[k] == 1u) seq_key_up(k);
-            else if (key_step[k] == 4u) { if (white_bar(k) == sel_first) sel_first = 0; }   /* (RAIN 44) */
             else if (key_step[k] == 0u) {
                 midi_send(0x80u | MIDI_OUT_CH, held_key[k], 0);
                 note_in(0, held_key[k], 0);
@@ -2778,6 +2804,7 @@ static void app_main(void)
         if (b & ~(1u << BTN_SAVE)) mem_arm = 0;   /* (MEMORY's question: any other button says no) */
         if (b & (1u << BTN_SEL)) sel_used = sel_first = 0;  /* (RAIN 43) SELECT acts let go, unless a key set a length with it */
         sel_up = (rel >> BTN_SEL & 1u) && !sel_used;
+        if ((rel >> BTN_SEL & 1u) && sel_first) { bars_set(1, sel_first); sel_first = 0; }   /* (RAIN 45) one key: bars 1 to it */
         {
             uint32_t mh = is_seq_page(page) && seq_view == SV_STEPS && !layer && (fm1_in.buttons >> BTN_SEL & 1u);
             if (mh != more_held) { more_held = mh; dirty_page = dirty_steps = 1; }   /* (SELECT held in STEPS: STEP+) */
