@@ -750,6 +750,10 @@ static void step_add(step_t *st, uint32_t note, uint32_t vel)   /* a note into a
     if (!st->note[0]) { step_clear(st); st->gate = 96; }   /* (an empty step: on the step, until a recording nudges it) */
     for (k = 0; k < SEQ_CHORD && st->note[k] && st->note[k] != note; k++) ;
     if (k < SEQ_CHORD && !st->note[k]) st->note[k] = (uint8_t)note;
+    else if (k == SEQ_CHORD) {                  /* (RAIN 42) a fifth note: the first one goes, the new one comes last */
+        for (k = 1; k < SEQ_CHORD; k++) st->note[k - 1u] = st->note[k];
+        st->note[SEQ_CHORD - 1u] = (uint8_t)note;
+    }
     st->vel = (uint8_t)vel;
     st->ratch &= (uint8_t)~STEP_OFF;
 }
@@ -920,8 +924,11 @@ static void xnote(uint32_t c, uint32_t f, int32_t val)   /* channel c's note: be
     rep_poll();
     e = xtab(ui_seq_pos[0] % pat.trk[0].len);
     for (k = 0; k < 4u; k++) { if (e[k * 4u] == n) break; if (f0 == 4u && !e[k * 4u]) f0 = k; }
-    if (k == 4u) {                              /* (a fifth note on one step: not kept) */
-        if (f0 == 4u) return;
+    if (k == 4u) {                              /* a new note on this step */
+        if (f0 == 4u) {                         /* (RAIN 42) a fifth: the first one's goes */
+            for (k = 0; k < 12u; k++) e[k] = e[k + 4u];
+            f0 = 3u;
+        }
         k = f0; e[k * 4u] = (uint8_t)n; e[k * 4u + 1u] = e[k * 4u + 2u] = e[k * 4u + 3u] = 0xFFu;
     }
     e[k * 4u + 1u + f] = (uint8_t)clampi(val, 0, 254);
