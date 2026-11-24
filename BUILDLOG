@@ -1,0 +1,8 @@
+loader: image 10488 B at 0x1c0a800, bss end 0x1c0ff50
+loader: ota.bin 9081 B
+  ok    .ram_text: 925 insns, no calls
+  ok    image 184808 B of 581564; RAM .data+.bss 82704 B of 98304; pool 314560 B of 344064
+  ok    register access: hal/ only (src/, loader/ clean)
+app      /home/runner/work/obervave/obervave/build/obervave.bin  184808 B
+loader   /home/runner/work/obervave/obervave/build/loader/ota.bin  9081 B
+package  /home/runner/work/obervave/obervave/build/obervave-3.5-rain17.fwsc  612237 B, identity FM-1_9535
