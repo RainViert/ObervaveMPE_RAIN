@@ -79,11 +79,13 @@ static struct {
                                                  * SELECT). OCT+ held at power-on: one core this time */
     uint8_t kit[NTRK][12], kit_ok;              /* (RAIN 31) each track's kit keys (KE_*, 0 the kit's default), with the slots */
     int8_t kit_tune[NTRK][12]; uint8_t ktune_ok;   /* (RAIN 33) each kit key's tuning in semitones (-24..+24), with the slots */
+    uint8_t rec_mode, mpe_rec, recm_ok;         /* (RAIN 38) REC: 0 OVERDUB, 1 REPLACE; MPE REC: 0 NOTES (an MPE pattern), 1 TRACK */
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
 #define KIT_OK 0x4Bu
 #define KTUNE_OK 0x5Cu
+#define RECM_OK 0x6Eu
 static char c1_text[40], c1_text2[40] = "SECOND CORE";                        /* (RAIN 22) the last failure in words, shown again on SELECT */
 static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
@@ -753,6 +755,30 @@ static void step_add(step_t *st, uint32_t note, uint32_t vel)   /* a note into a
 static uint32_t rec_on_bits[NTRK][SEQ_STEPS / 32u];
 static void rec_begin(void) { rec = REC_ON; undo_save(); memset(rec_on_bits, 0, sizeof rec_on_bits); }
 #define REC_ON_AT(t, s) (rec_on_bits[(t) % NTRK][((s) % SEQ_STEPS) >> 5] >> ((s) & 31u) & 1u)
+/* (RAIN 38) REC REPLACE: each step of the recording track the playhead comes to loses its notes and its recorded
+ * expression (a step this take has played into stays; the knobs' lanes stay) */
+static uint32_t rep_last = 0xFFFFFFFFu;
+static void rep_clear(uint32_t t, uint32_t s)
+{
+    uint32_t l;
+    step_t *st;
+    if (REC_ON_AT(t, s)) return;
+    st = seq_step(t, s);
+    if (st->note[0]) { step_clear(st); pat_edited = 1; }
+    for (l = 0; l < NLANE; l++)
+        if (pat.lane[t][l].param >= AUTO_XB && pat.lane[t][l].param <= AUTO_XS && pat.lane[t][l].v[s % SEQ_STEPS] != AUTO_NONE) {
+            pat.lane[t][l].v[s % SEQ_STEPS] = AUTO_NONE; pat_edited = 1;
+        }
+    if (!t && pat_xpat()) { uint8_t *e = xtab(s); uint32_t k; for (k = 0; k < 16u; k++) e[k] = 0; }
+}
+static void rep_poll(void)
+{
+    uint32_t t = seq_trk % NTRK, len = pat.trk[t].len, p;
+    if (rec != REC_ON || !ctl_seq_run || set.rec_mode != 1u || ctl_count || rec_wait || !len || !(ctl_trk_on >> t & 1u)) { rep_last = 0xFFFFFFFFu; return; }
+    p = ui_seq_pos[t] % len;
+    if (rep_last >= len) { rep_last = p; rep_clear(t, p); return; }
+    while (rep_last != p) { rep_last = rep_last + 1u >= len ? 0u : rep_last + 1u; rep_clear(t, rep_last); }
+}
 
 /* an arp take: from its first note while the keys (or HOLD) keep the arp going. When the loop comes round, what it
  * writes replaces what it wrote the round before (else every step got a second note and the take turned into chords);
@@ -789,8 +815,10 @@ static void rec_note(uint32_t on, uint32_t note, uint32_t vel)
     else if (on)
         s0 = ctl_seq_restart ? 0u : rec_where(t, &nudge);
     if (on) {
-        step_t *st = seq_step(t, s0);
+        step_t *st;
         uint32_t was;
+        rep_poll();                             /* (RAIN 38) REPLACE: the steps up to here cleared first */
+        st = seq_step(t, s0);
         if (rec_from_arp) take_step(t, s0, st);
         was = st->note[0];
         note = (uint32_t)clampi((int32_t)note - pat.trk[t].transp, 1, 127);   /* stored as heard */
@@ -839,6 +867,7 @@ static void lane_rec(uint32_t t, uint32_t p, uint32_t val)
     uint32_t l, f = NLANE, len;
     t %= NTRK; len = pat.trk[t].len;
     if (rec != REC_ON || !ctl_seq_run || !len || !(ctl_trk_on >> t & 1u)) return;
+    rep_poll();                                 /* (RAIN 38) */
     for (l = 0; l < NLANE; l++) { if (pat.lane[t][l].param == p) break; if (f == NLANE && pat.lane[t][l].param == AUTO_NONE) f = l; }
     if (l == NLANE) {
         if (f == NLANE) { m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": 4 KNOBS RECORDED"); say(m); return; }
@@ -870,6 +899,7 @@ static int xpat_ready(void)
     uint32_t t, i;
     if (rec != REC_ON || !ctl_seq_run || seq_trk % NTRK || !rec_keys() || !pat.trk[0].len || !(ctl_trk_on & 1u)) return 0;
     if (pat_xpat()) return 1;
+    if (set.mpe_rec) return 0;                  /* (RAIN 38) MPE REC TRACK: for the whole track (RAIN 36) */
     for (t = 2; t < NTRK; t++) for (i = 0; i < SEQ_STEPS; i++) if (pat.st[t][i].note[0]) return 0;   /* (C or D in use) */
     for (t = 2; t < NTRK; t++) for (i = 0; i < NLANE; i++) lane_clear(&pat.lane[t][i]);
     memset(&pat.st[2][0], 0, sizeof pat.st[2] + sizeof pat.st[3]);
@@ -884,6 +914,7 @@ static void xnote(uint32_t c, uint32_t f, int32_t val)   /* channel c's note: be
     uint8_t *e;
     if (!n) return;
     if (!xpat_ready()) { if (xrec_ch == c + 1u) xrec(0, f, val); return; }   /* (RAIN 36: for the track) */
+    rep_poll();
     e = xtab(ui_seq_pos[0] % pat.trk[0].len);
     for (k = 0; k < 4u; k++) { if (e[k * 4u] == n) break; if (f0 == 4u && !e[k * 4u]) f0 = k; }
     if (k == 4u) {                              /* (a fifth note on one step: not kept) */
@@ -1188,6 +1219,12 @@ static void draw_page(void)
             else if (i == 1) { scat(k[i].value, CLICK_NAME[set.click % NCLICK]); k[i].v = set.click % NCLICK; k[i].max = NCLICK - 1; }
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
+        } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) how REC records */
+            static const char *const RCL[4] = {"REC", "MPE REC", "", ""};
+            k[i].label = RCL[i];
+            k[i].present = i < 2u;
+            if (!i) { scat(k[i].value, set.rec_mode ? "REPLACE" : "OVERDUB"); k[i].v = set.rec_mode; k[i].max = 1; }
+            else if (i == 1u) { scat(k[i].value, set.mpe_rec ? "TRACK" : "NOTES"); k[i].v = set.mpe_rec; k[i].max = 1; }
         } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) SLOT, SOURCE, DEST, AMOUNT of the track's */
             static const char *const XL[4] = {"SLOT", "SOURCE", "DEST", "AMOUNT"};
             const mm_slot_t *m = &set.mm[seq_trk % NTRK][set.mm_slot % MM_N];
@@ -2503,7 +2540,7 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[10] = {sizeof set, SET_AT(kit_tune), SET_AT(kit), SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[11] = {sizeof set, SET_AT(rec_mode), SET_AT(kit_tune), SET_AT(kit), SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
             for (z = 0; z < 9u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
@@ -2557,6 +2594,7 @@ static void app_main(void)
     if (set.rain10_ok != RAIN10_OK) { memset(set.mm_prog, 0, sizeof set.mm_prog); set.rain10_ok = RAIN10_OK; }   /* (RAIN 10) */
     if (set.rain18_ok != RAIN18_OK || set.cores2 > 1u) { set.cores2 = 0; set.rain18_ok = RAIN18_OK; }   /* (RAIN 18) one core */
     if (set.kit_ok != KIT_OK) { memset(set.kit, 0, sizeof set.kit); set.kit_ok = KIT_OK; }   /* (RAIN 31) the kits' defaults */
+    if (set.recm_ok != RECM_OK || set.rec_mode > 1u || set.mpe_rec > 1u) { set.rec_mode = set.mpe_rec = 0; set.recm_ok = RECM_OK; }   /* (RAIN 38) */
     if (set.ktune_ok != KTUNE_OK) { memset(set.kit_tune, 0, sizeof set.kit_tune); set.ktune_ok = KTUNE_OK; }   /* (RAIN 33) untuned */
     if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
     if (set.rain4_ok != RAIN4_OK) { set.d1_pp = 0; set.rain4_ok = RAIN4_OK; }   /* (RAIN 4) mono, as rain4 */
@@ -2641,6 +2679,7 @@ static void app_main(void)
         smk_pads(base, &dirty_steps);           /* the step pads, the outer keys */
         if (dirty_steps) dirty_page = 1;
 #endif
+        rep_poll();                             /* (RAIN 38) REC REPLACE */
         take_check();
         while (arp_qr != arp_qw) {              /* REC with the arp on: what it plays is recorded, where it played it */
             arpev_t ev;
@@ -2932,6 +2971,10 @@ static void app_main(void)
                 else if (k == 1) set.click = (uint8_t)clampi((int32_t)(set.click % NCLICK) + (e > 0 ? 1 : -1), 0, NCLICK - 1);
                 else if (k == 2) set.midi_ch = (uint8_t)clampi(set.midi_ch + e, 0, 16);
                 else { set.tune = (int8_t)clampi(set.tune + e, -50, 50); ctl_tune8 = set.tune * 256 / 100; }
+                set_dirty = 1; set_t = fm1_ms;
+            } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) */
+                if (k == 0) set.rec_mode = e > 0 ? 1u : 0u;
+                else if (k == 1) set.mpe_rec = e > 0 ? 1u : 0u;
                 set_dirty = 1; set_t = fm1_ms;
             } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) */
                 int32_t s1 = e > 0 ? 1 : -1;

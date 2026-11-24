@@ -1,0 +1,60 @@
+# (RAIN 38) MPE REC = TRACK (GLO RECORD, knob 2): the same chord as rain_xpat, the expression for the whole track: both notes follow the one played last
+3000 midi 0xC0 42 0
+3100 btn 7
+3200 btn 7
+3300 btn 7
+3400 enc 2 1
+3420 enc 2 1
+3440 enc 2 1
+3460 enc 2 1
+3500 shot
+3600 btn 7
+3650 enc 3 1
+3655 enc 3 1
+3660 enc 3 1
+3665 enc 3 1
+3670 enc 3 1
+3675 enc 3 1
+3680 enc 3 1
+3685 enc 3 1
+3690 enc 3 1
+3695 enc 3 1
+3700 enc 3 1
+3705 enc 3 1
+3710 enc 3 1
+3715 enc 3 1
+3720 enc 3 1
+3800 shot
+3900 btn 7
+3950 enc 3 1
+4000 btn 11
+4200 btn 13
+4500 midi 0x91 60 110
+4500 midi 0x92 67 110
+4700 midi 0xE1 0 64
+4700 midi 0xE2 0 64
+4800 midi 0xE1 0 66
+4800 midi 0xE2 0 62
+4900 midi 0xE1 0 68
+4900 midi 0xE2 0 60
+5000 midi 0xE1 0 70
+5000 midi 0xE2 0 58
+5100 midi 0xE1 0 72
+5100 midi 0xE2 0 56
+5200 midi 0xE1 0 74
+5200 midi 0xE2 0 54
+5300 midi 0xE1 0 76
+5300 midi 0xE2 0 52
+5400 midi 0xE1 0 78
+5400 midi 0xE2 0 50
+5500 midi 0xE1 0 80
+5500 midi 0xE2 0 48
+5900 midi 0x81 60 0
+5900 midi 0x82 67 0
+6000 midi 0xE1 0 64
+6000 midi 0xE2 0 64
+6400 btn 12
+7000 btn 12
+7300 shot
+
+9000 end

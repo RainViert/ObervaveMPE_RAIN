@@ -3,6 +3,16 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain38 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- A page RECORD under GLO (after MPE + CHANNELS), kept with the settings:
+  - REC (knob 1): OVERDUB (as ever) or REPLACE: each step of the recording track the playhead comes to loses its
+    notes and recorded expression; what this take plays in stays (the knobs' lanes stay).
+  - MPE REC (knob 2): NOTES (rain37: an MPE pattern, each note its own expression) or TRACK (rain36: the expression
+    in lanes for the whole track, C and D stay free). A pattern that is an MPE pattern already stays one.
+
 ## 3.5-rain37 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
