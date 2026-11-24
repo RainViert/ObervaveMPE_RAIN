@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain34 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- REC records MIDI from MPE's member channels (2-16, track A) and from a track's own channel (B-D) too, when that
+  track is the one recording: an LinnStrument in MPE mode records like the keys (pitch, velocity, length; the per-note
+  slide and pressure are not stored in the steps).
+- Includes rain32 (output leveller) and rain33 (kit tuning).
+
 ## 3.5-rain33 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
