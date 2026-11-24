@@ -262,7 +262,7 @@ static uint32_t smk_pads_held, smk_pad_t0, smk_step_vel;
 #define SMK_PAD_HELD 0
 #define KEY_VEL(k) 100
 #define STEP_NEW_VEL(st) ((void)0)
-#define REC_TIE_VEL(t, s0) 100u
+#define REC_TIE_VEL(t, s0) seq_step(t, s0)->vel   /* (RAIN 35) the played velocity, as the SMK: MIDI and MPE bring theirs */
 #define NM_EDIT "EDIT"
 #define NM_HOME "HOME"
 #define NM_SELBTN "SELECT"
