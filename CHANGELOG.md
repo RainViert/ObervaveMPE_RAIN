@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain43 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- SELECT held + a white key: the chosen track's length in bars, the 16 white keys 1-16 bars (16 steps each), on any
+  page (in the SEQ, EDIT, GLO layers the keys keep their own work). SELECT's own work on OUTPUT, MPE + CHANNELS and
+  GLOBAL is done when it is let go, unless a key set a length with it.
+
 ## 3.5-rain42 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

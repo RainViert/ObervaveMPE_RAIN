@@ -2271,12 +2271,29 @@ static uint32_t cycle_page(uint32_t first, uint32_t count)   /* a button steps t
     return first;
 }
 
+/* (RAIN 43) SELECT held + a white key: the chosen track's length in bars, the 16 white keys 1-16 bars */
+static uint32_t sel_used;                       /* a key used with SELECT held: its page's own SELECT is not done */
+static void sel_len_key(uint32_t k)
+{
+    static char m[24];
+    uint32_t pc = (5u + k) % 12u, n = 0, j, t = seq_trk % NTRK;
+    sel_used = 1;
+    if (pc == 1u || pc == 3u || pc == 6u || pc == 8u || pc == 10u) return;   /* (a black key: none) */
+    for (j = 0; j <= k; j++) { uint32_t q = (5u + j) % 12u; if (!(q == 1u || q == 3u || q == 6u || q == 8u || q == 10u)) n++; }
+    if (!n || n > 16u) return;
+    pat.trk[t].len = (uint16_t)(n * 16u);
+    if (seq_cur[t] >= pat.trk[t].len) seq_cur[t] = pat.trk[t].len - 1u;
+    if (seq_pg[t] >= seq_pages(t)) seq_pg[t] = seq_pages(t) - 1u;
+    pat_edited = 1;
+    m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": "); fmt_u(m + slen(m), n); scat(m, n == 1u ? " BAR" : " BARS");
+    say(m);
+}
 static void keys_in(uint32_t notes_only)
 {
     uint32_t keys = fm1_in.notes, down = keys & ~keys_prev, up = keys_prev & ~keys, base = (uint32_t)(KEY0 + 12 * set.oct), k;
     for (k = 0; k < 27u; k++) {             /* the keys by layer: EDIT erases, SEQ steps, GLO mix; else notes */
         if (down >> k & 1u) {
-            uint32_t ks = layer == L_EDIT ? 2u : steps_on() ? 1u : layer == L_GLO ? 3u : 0u;
+            uint32_t ks = layer == L_EDIT ? 2u : steps_on() ? 1u : layer == L_GLO ? 3u : (!layer && (fm1_in.buttons >> BTN_SEL & 1u)) ? 4u : 0u;
             if (notes_only && ks) continue;     /* not a note: the main loop's (its bit stays new) */
             keys_prev |= 1u << k;
             held_key[k] = (uint8_t)(base + k);
@@ -2288,6 +2305,7 @@ static void keys_in(uint32_t notes_only)
                 say("ERASED");
             } else if (key_step[k] == 1u) seq_key_down(k);
             else if (key_step[k] == 3u) { glo_key(k); layer_used = 1; }
+            else if (key_step[k] == 4u) sel_len_key(k);   /* (RAIN 43) */
             else {
                 midi_send(0x90u | MIDI_OUT_CH, held_key[k], KEY_VEL(k));
                 note_in(1, held_key[k], KEY_VEL(k));
@@ -2665,7 +2683,7 @@ static void app_main(void)
     scope_state = 1;
 
     for (;;) {
-        uint32_t rel, b, lit = 0, base = (uint32_t)(KEY0 + 12 * set.oct), np = page;
+        uint32_t rel, b, sel_up, lit = 0, base = (uint32_t)(KEY0 + 12 * set.oct), np = page;
         int32_t e;
         if (cpu1_bad) {                         /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
                                                  * late): off for good, saved; the user may switch it on again */
@@ -2743,17 +2761,19 @@ static void app_main(void)
         b = fm1_input_edges(&rel);
         if (set.link) link_buttons(b, rel);     /* (3.4) VIBE LINK ON: the buttons go out as well */
         if (b & ~(1u << BTN_SAVE)) mem_arm = 0;   /* (MEMORY's question: any other button says no) */
+        if (b & (1u << BTN_SEL)) sel_used = 0;  /* (RAIN 43) SELECT acts let go, unless a key set a length with it */
+        sel_up = (rel >> BTN_SEL & 1u) && !sel_used;
         {
             uint32_t mh = is_seq_page(page) && seq_view == SV_STEPS && !layer && (fm1_in.buttons >> BTN_SEL & 1u);
             if (mh != more_held) { more_held = mh; dirty_page = dirty_steps = 1; }   /* (SELECT held in STEPS: STEP+) */
         }
-        if (b & (1u << BTN_SEL) && page == PG_OUTPUT && !layer) { link_set(set.link + 1u); dirty_page = 1; }   /* (3.4) OUTPUT: SELECT pressed = VIBE LINK off > on > control */
-        if (b & (1u << BTN_SEL) && page == PG_MPE2 && !layer) {   /* (RAIN 18) CHANNELS: SELECT pressed = 1 / 2 CORES */
+        if (sel_up && page == PG_OUTPUT && !layer) { link_set(set.link + 1u); dirty_page = 1; }   /* (3.4) OUTPUT: SELECT pressed = VIBE LINK off > on > control */
+        if (sel_up && page == PG_MPE2 && !layer) {   /* (RAIN 18) CHANNELS: SELECT pressed = 1 / 2 CORES */
             set.cores2 = !set.cores2; set_dirty = 1; set_t = fm1_ms;
             say(c1_why && !set.cores2 ? c1_text : set.cores2 ? "2 CORES FROM THE NEXT POWER-ON" : "1 CORE FROM THE NEXT POWER-ON");
             dirty_page = 1;
         }
-        if (b & (1u << BTN_SEL) && page == PG_GLOBAL && !layer) {   /* GLOBAL: SELECT pressed = SYNC AUTO / INTERNAL */
+        if (sel_up && page == PG_GLOBAL && !layer) {   /* GLOBAL: SELECT pressed = SYNC AUTO / INTERNAL */
             set.sync_int = !set.sync_int; set_dirty = 1; set_t = fm1_ms;
             if (set.sync_int) { ctl_ext_quarter = 0; ctl_ext_lock = 0; clk_n = 0; }
             say(set.sync_int ? "SYNC INTERNAL" : "SYNC AUTO: A MIDI CLOCK LEADS");
