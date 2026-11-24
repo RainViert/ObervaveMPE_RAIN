@@ -22,9 +22,9 @@ static void app_idle(void);
 #include "obv_dsp.h"
 #include "obv_params.h"
 #include "obv_fx.h"
+#include "obv_patches.h"                       /* (RAIN 28) before the engine: the drum kit's pieces */
 #include "obv_engine.h"
 #include "obv_seq.h"
-#include "obv_patches.h"
 
 static void app_audio(int32_t *out, uint32_t n)
 {
@@ -297,7 +297,7 @@ static void prog_get(uint32_t n, patch_t *p)    /* program n: the user's, else t
 {
     n %= NPROG;
     if (psect[n / PS_N].used[n % PS_N]) *p = psect[n / PS_N].p[n % PS_N];
-    else patch_from_factory(p, n < NFACT ? &FACTORY[n] : n < NFACT + NVIBE ? &FACT_VIBE[n - NFACT] : &FACT_INIT);
+    else patch_from_factory(p, n < NFACT ? &FACTORY[n] : n < NFACT + NVIBE ? &FACT_VIBE[n - NFACT] : n == NFACT + NVIBE ? &FACT_KIT : &FACT_INIT);   /* (RAIN 28) 71 DRUM KIT */
 }
 
 static void prog_put(uint32_t n, const patch_t *p)   /* program n is the user's now; saved when quiet */
@@ -901,7 +901,7 @@ static void param_value(char *s, uint32_t p, uint32_t v)   /* <= 7 characters */
     case K_ONOFF: scat(s, v ? "ON" : "OFF"); break;
     case K_WAVE: scat(s, WAVE_NAME[v & 3u]); break;
     case K_FTYPE: scat(s, FTYPE_NAME[v % NFTYPE]); break;
-    case K_MODE: scat(s, MODE_NAME[v & 3u]); break;
+    case K_MODE: scat(s, MODE_NAME[v % 5u]); break;
     case K_LSHAPE: scat(s, LSHAPE_NAME[v % 6u]); break;
     case K_LPHASE: scat(s, LPHASE_NAME[v % 3u]); break;
     case K_TO: scat(s, TO_NAME[v % 3u]); break;
@@ -940,15 +940,15 @@ static void draw_header(void)
     }
     {   /* short words; mode, filter, HOLD, SEQ and REC always (at most 23 characters: MONO NOTCH HOLD SEQ REC); then,
          * as far as they fit, ARP, FX */
-        static const char *const MODE_S[4] = {"POLY", "DUAL", "UNI", "MONO"};
+        static const char *const MODE_S[5] = {"POLY", "DUAL", "UNI", "MONO", "KIT"};
         static const char *const FT_S[NFTYPE] = {"LP12", "HP12", "BP12", "NOTCH", "LP24", "SEM"};
         const uint8_t *pv = ed_patch(0)->v;     /* (the mode and filter of the sound the panel is on) */
         uint32_t arp = pv[P_ARP_MODE] != 0, fx = live.v[P_CHO_MIX] || live.v[P_DLY_MIX] || live.v[P_REV_MIX];
-        uint32_t n = slen(MODE_S[pv[P_MODE] & 3u]) + 1u + slen(FT_S[pv[P_FTYPE] % NFTYPE])
+        uint32_t n = slen(MODE_S[pv[P_MODE] % 5u]) + 1u + slen(FT_S[pv[P_FTYPE] % NFTYPE])
                    + ((hold >> seq_trk & 1u) ? 5u : 0u) + (ctl_seq_run ? 4u : 0u) + (rec ? 4u : 0u);
         if (arp && n + 4u <= 23u) n += 4u; else arp = 0;
         if (fx && n + 3u <= 23u) n += 3u; else fx = 0;
-        scat(tags, MODE_S[pv[P_MODE] & 3u]);
+        scat(tags, MODE_S[pv[P_MODE] % 5u]);
         scat(tags, " ");
         scat(tags, FT_S[pv[P_FTYPE] % NFTYPE]);
         if (arp) scat(tags, " ARP");

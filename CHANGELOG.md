@@ -3,6 +3,17 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain28 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- **DRUM KIT** (program 71, a new MODE: KIT): every key plays its own drum, in every octave, in General MIDI's order
+  where it fits: C kick, C# rim, D snare, D# clap, E snare, F low tom, F# closed hat, G mid tom, G# closed hat,
+  A high tom, A# open hat, B cymbal. One-shots (a drum sounds out however short the key or the step), the velocity
+  sets the level, a closed hat cuts the open one. All made by OberVave's own oscillators, noise and filters; a drum
+  costs what a voice costs, and only the drums that sound are worked out. Plays from the keys, the sequencer and MIDI
+  (a track's channel: a drum machine on one track).
+
 ## 3.5-rain27 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release. A diagnosis build.

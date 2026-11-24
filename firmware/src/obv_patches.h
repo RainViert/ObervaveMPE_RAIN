@@ -193,9 +193,36 @@ static const uint8_t PF_WURLI[] = {P_O1_WAVE, W_PLS, P_O1_PW, 38, P_O2_WAVE, W_P
     P_FTYPE, F_LP12, P_CUTOFF, 50, P_RESO, 15, P_FENV_AMT, 100, P_KEYTRK, 90, P_FA, 0, P_FD, 66, P_FS, 22, P_FR, 60,
     P_AA, 1, P_AD, 94, P_AS, 30, P_AR, 62, P_DRIVE, 35, P_VEL_FLT, 100, P_VEL_AMP, 90, P_LFO_SHAPE, L_TRI, P_LFO_RATE, 96,
     P_LFO_PHASE, LP_FREE, P_LFO_AMP, 30, P_VINTAGE, 30, P_SPREAD, 60, P_REV_SIZE, 75, P_REV_MIX, 20, X};
-#undef X
 
-static const factory_t FACT_INIT = {"INIT", PF_INIT};   /* 71-99 */
+/* (RAIN 28) the drum kit: program 71, MODE KIT. Each key plays its own drum at its own fixed pitch, in every octave
+ * (General MIDI's order where it fits): C kick, C# rim, D snare, D# clap, E snare, F low tom, F# closed hat, G mid
+ * tom, G# closed hat, A high tom, A# open hat, B cymbal. The closed hats cut the open one. One-shots: a drum sounds out
+ * whatever the key does; the velocity sets its level (and brightness where the sound has it) */
+static const uint8_t PF_KIT_RIM[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_PLS, P_O2_PW, 50, P_O2_LVL, 127, P_NOISE, 70, P_FTYPE, F_BP12,
+    P_CUTOFF, 104, P_RESO, 45, P_FENV_AMT, 70, P_KEYTRK, 64, P_FA, 0, P_FD, 30, P_FS, 0, P_FR, 30, P_AA, 0, P_AD, 38,
+    P_AS, 0, P_AR, 38, P_DRIVE, 90, P_VEL_AMP, 80, P_VINTAGE, 0, P_SPREAD, 0, P_VOLUME, 127, X};
+static const uint8_t PF_KIT_TOM[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_PLS, P_O2_PW, 64, P_O2_LVL, 127, P_O2_SEMI, 12, P_O2_FINE, 64,
+    P_ENV_O2, 88, P_NOISE, 10, P_CUTOFF, 52, P_RESO, 12, P_FENV_AMT, 96, P_KEYTRK, 127, P_FTYPE, F_LP24, P_FA, 0, P_FD, 62,
+    P_FS, 0, P_FR, 62, P_AA, 0, P_AD, 86, P_AS, 0, P_AR, 86, P_DRIVE, 40, P_VEL_FLT, 30, P_VEL_AMP, 60, P_VINTAGE, 0,
+    P_SPREAD, 0, P_VOLUME, 118, X};
+static const uint8_t PF_KIT_OHAT[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_OFF, P_NOISE, 127, P_FTYPE, F_HP12, P_CUTOFF, 98, P_RESO, 30,
+    P_DRIVE, 60, P_FENV_AMT, 64, P_KEYTRK, 40, P_AA, 0, P_AD, 84, P_AS, 0, P_AR, 40, P_VEL_AMP, 80, P_VINTAGE, 0, P_SPREAD, 0,
+    P_VOLUME, 112, X};
+static const uint8_t PF_KIT_CYM[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_OFF, P_NOISE, 127, P_FTYPE, F_HP12, P_CUTOFF, 92, P_RESO, 35,
+    P_DRIVE, 70, P_FENV_AMT, 64, P_KEYTRK, 40, P_AA, 0, P_AD, 104, P_AS, 0, P_AR, 104, P_VEL_AMP, 80, P_VINTAGE, 0,
+    P_SPREAD, 0, P_VOLUME, 104, P_REV_SIZE, 80, P_REV_MIX, 30, X};
+enum { KP_KICK, KP_RIM, KP_SNARE, KP_CLAP, KP_LTOM, KP_CHAT, KP_MTOM, KP_HTOM, KP_OHAT, KP_CYM, NKP };
+static const factory_t KIT_PC[NKP] = {{"KICK", PF_KICK}, {"RIM", PF_KIT_RIM}, {"SNARE", PF_SNARE}, {"CLAP", PF_CLAP},
+    {"LOW TOM", PF_KIT_TOM}, {"CL HAT", PF_HIHAT}, {"MID TOM", PF_KIT_TOM}, {"HI TOM", PF_KIT_TOM}, {"OP HAT", PF_KIT_OHAT},
+    {"CYMBAL", PF_KIT_CYM}};
+/* per pitch class: the piece and the fixed note it sounds at (the kick low, the snare at C3, the toms ~100 / 130 / 175 Hz) */
+static const uint8_t KIT_KEY_PC[12] = {KP_KICK, KP_RIM, KP_SNARE, KP_CLAP, KP_SNARE, KP_LTOM, KP_CHAT, KP_MTOM, KP_CHAT,
+                                       KP_HTOM, KP_OHAT, KP_CYM};
+static const uint8_t KIT_NOTE[NKP] = {36, 72, 48, 60, 55, 72, 60, 65, 72, 72};
+static const uint8_t PF_DRUM_KIT[] = {P_MODE, M_KIT, P_SPREAD, 0, P_REV_SIZE, 60, P_REV_MIX, 12, X};
+static const factory_t FACT_KIT = {"DRUM KIT", PF_DRUM_KIT};
+#undef X
+static const factory_t FACT_INIT = {"INIT", PF_INIT};   /* 72-99 */
 static const factory_t FACT_VIBE[] = {                  /* 65-70 (VIBE): drums and keys */
     {"KICK", PF_KICK}, {"SNARE", PF_SNARE}, {"HIHAT", PF_HIHAT}, {"CLAP", PF_CLAP}, {"E-PIANO", PF_EPIANO}, {"WURLI", PF_WURLI}};
 #define NVIBE (sizeof FACT_VIBE / sizeof FACT_VIBE[0])

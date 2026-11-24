@@ -33,7 +33,7 @@ enum { K_NUM, K_BIP, K_ONOFF, K_WAVE, K_FTYPE, K_MODE, K_LSHAPE, K_LPHASE, K_TO,
        K_PCT, K_CUT, K_OCT, K_MORPH, K_DDIV };
 enum { W_OFF, W_SAW, W_PLS, W_BOTH };
 enum { F_LP12, F_HP12, F_BP12, F_NOTCH, F_LP24, F_SEM, NFTYPE };   /* SEM: LP .. notch .. HP by MORPH */
-enum { M_POLY, M_DUAL, M_UNISON, M_MONO };
+enum { M_POLY, M_DUAL, M_UNISON, M_MONO, M_KIT };   /* (RAIN 28) KIT: each key its own drum (obv_patches.h KIT_PC) */
 enum { L_TRI, L_SAW, L_RAMP, L_SQR, L_SH, L_RND };
 enum { LP_SYNC, LP_FREE, LP_SPREAD };
 enum { TO_O1, TO_O2, TO_BOTH };
@@ -84,7 +84,7 @@ static const pdef_t PDEF[NPARAM] = {
     [P_LFO_AMP] = {"AMP", 127, 0, K_NUM, 0},
     [P_LFO_PITCH_TO] = {"PITCH>", 2, TO_BOTH, K_TO, 0},
     [P_LFO_PWM_TO] = {"PWM>", 2, TO_BOTH, K_TO, 0},
-    [P_MODE] = {"MODE", 3, M_POLY, K_MODE, 0},
+    [P_MODE] = {"MODE", 4, M_POLY, K_MODE, 0},
     [P_UNI_N] = {"VOICES", 8, 4, K_NUM, 0},
     [P_UNI_DET] = {"DETUNE", 127, 30, K_NUM, 0},
     [P_GLIDE] = {"GLIDE", 127, 0, K_MS, 5},
@@ -113,7 +113,7 @@ static const pdef_t PDEF[NPARAM] = {
 
 static const char *const WAVE_NAME[4] = {"OFF", "SAW", "PULSE", "SAW+PLS"};
 static const char *const FTYPE_NAME[NFTYPE] = {"LP 12", "HP 12", "BP 12", "NOTCH", "LP 24", "SEM"};
-static const char *const MODE_NAME[4] = {"POLY", "DUAL", "UNISON", "MONO"};
+static const char *const MODE_NAME[5] = {"POLY", "DUAL", "UNISON", "MONO", "KIT"};
 static const char *const LSHAPE_NAME[6] = {"TRI", "SAW", "RAMP", "SQUARE", "S&H", "RANDOM"};
 static const char *const LPHASE_NAME[3] = {"SYNC", "FREE", "SPREAD"};
 static const char *const TO_NAME[3] = {"OSC1", "OSC2", "BOTH"};
