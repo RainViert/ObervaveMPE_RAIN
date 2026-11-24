@@ -1,0 +1,46 @@
+# (RAIN 34) MPE on track A, the DRUM KIT; SEQ, REC armed, drum hits on member channels 2-4: recorded; PLAY again: they play back
+3000 midi 0xC0 70 0
+3100 btn 7
+3200 btn 7
+3300 btn 7
+3400 enc 2 1
+3420 enc 2 1
+3440 enc 2 1
+3460 enc 2 1
+3500 shot
+3600 btn 7
+3650 enc 3 1
+3655 enc 3 1
+3660 enc 3 1
+3665 enc 3 1
+3670 enc 3 1
+3675 enc 3 1
+3680 enc 3 1
+3685 enc 3 1
+3690 enc 3 1
+3695 enc 3 1
+3700 enc 3 1
+3705 enc 3 1
+3710 enc 3 1
+3715 enc 3 1
+3720 enc 3 1
+3800 shot
+4000 btn 11
+4200 btn 13
+4500 midi 0x91 48 110
+4560 midi 0x81 48 0
+5000 midi 0x92 50 110
+5060 midi 0x82 50 0
+5250 midi 0x93 54 100
+5300 midi 0x83 54 0
+5500 midi 0x91 48 110
+5560 midi 0x81 48 0
+5750 midi 0x94 54 100
+5800 midi 0x84 54 0
+6000 midi 0x92 50 110
+6060 midi 0x82 50 0
+7000 btn 12
+7300 shot
+7500 btn 12
+11500 shot
+12000 end

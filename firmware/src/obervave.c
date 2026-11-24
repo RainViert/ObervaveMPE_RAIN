@@ -2208,6 +2208,13 @@ static void keys_in(uint32_t notes_only)
 }
 
 static uint8_t midi_back[4];                    /* a message left for the main loop (app_idle met a program change) */
+/* (RAIN 34) REC takes the notes of a track's own channel and MPE's member channels too, when that track is recording */
+static void rec_from(uint32_t t, uint32_t on, uint32_t note, uint32_t vel)
+{
+    note &= 127u;
+    if (rec && t == seq_trk % NTRK && rec_keys()) { rec_note(on, note, vel); dirty_steps = 1; }
+    if (!on) ctl_live_hold[t % NTRK][note >> 5 & 3u] &= ~(1u << (note & 31u));   /* (let go: the sequencer's again) */
+}
 static void midi_in(uint32_t notes_only)
 {
     uint8_t st, d1, d2;
@@ -2255,8 +2262,8 @@ static void midi_in(uint32_t notes_only)
             uint32_t t;
             for (t = 1; t < NTRK && set.ch_trk[t - 1u] != ch; t++) ;
             if (t < NTRK) {
-                if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
-                else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
+                if (kind == 0x90u && d2) { note_event_p(t, 1, d1, d2); rec_from(t, 1, d1, d2); }
+                else if (kind == 0x80u || kind == 0x90u) { note_event_p(t, 0, d1, 0); rec_from(t, 0, d1, 0); }
                 else if (kind == 0xC0u && d1 < NPROG) { trk_load(t, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
                 else if (kind == 0xD0u) ctl_at[t] = (uint8_t)d1;   /* (RAIN 9) the matrix's PRESS */
                 else if (kind == 0xB0u && d1 == 64u) ;   /* (the pedal stays track A's) */
@@ -2270,8 +2277,8 @@ static void midi_in(uint32_t notes_only)
         }
         if (ctl_mpe_range && ch > 1u) {         /* (RAIN) MPE: channels 2..16 are track A's notes, each its own */
             uint32_t c = (ch - 1u) & 15u;
-            if (kind == 0x90u && d2) note_event_ch(0, 1, d1, d2, c);
-            else if (kind == 0x80u || kind == 0x90u) note_event_ch(0, 0, d1, 0, c);
+            if (kind == 0x90u && d2) { note_event_ch(0, 1, d1, d2, c); rec_from(0, 1, d1, d2); }
+            else if (kind == 0x80u || kind == 0x90u) { note_event_ch(0, 0, d1, 0, c); rec_from(0, 0, d1, 0); }
             else if (kind == 0xE0u) mpe_bend[c] = (int16_t)((int32_t)(d1 | d2 << 7) - 8192);
             else if (kind == 0xD0u) mpe_press[c] = (uint8_t)d1;
             else if (kind == 0xB0u && d1 == 74u) mpe_slide[c] = (int8_t)((int32_t)d2 - 64);
@@ -2280,8 +2287,8 @@ static void midi_in(uint32_t notes_only)
         if (ctl_mpe_range) ;                    /* (channel 1, the MPE master: track A's as ever) */
         else if (set.midi_ch && ch > set.midi_ch && ch < set.midi_ch + NTRK) {   /* the next three channels: tracks B-D */
             uint32_t t = ch - set.midi_ch;
-            if (kind == 0x90u && d2) note_event_p(t, 1, d1, d2);
-            else if (kind == 0x80u || kind == 0x90u) note_event_p(t, 0, d1, 0);
+            if (kind == 0x90u && d2) { note_event_p(t, 1, d1, d2); rec_from(t, 1, d1, d2); }
+            else if (kind == 0x80u || kind == 0x90u) { note_event_p(t, 0, d1, 0); rec_from(t, 0, d1, 0); }
             else if (kind == 0xD0u) ctl_at[t] = (uint8_t)d1;   /* (RAIN 9) */
             else if (kind == 0xC0u && d1 < NPROG) { trk_load(t, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
             else if (kind == 0xB0u && cc_map[d1]) {
