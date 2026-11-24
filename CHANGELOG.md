@@ -3,6 +3,13 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain50 – 2026-11-25
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- Recording, a tap on REC switches recording off again (the sequencer plays on), as before rain47. In OVERDUB, REC
+  held over 1/4 s punches in REPLACE while it is held (from then on: a tap erases nothing).
+
 ## 3.5-rain49 – 2026-11-25
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
