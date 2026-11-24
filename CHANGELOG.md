@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain32 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- A leveller in front of the output stage's tanh: a big chord held at full sustain drove it far into saturation (the
+  sum of six voices at their peak, for seconds). Above 0.75 of full scale its gain comes down softly (attack ~0.2 ms,
+  release ~190 ms); below, the sound is bit for bit as before.
+
 ## 3.5-rain31 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
