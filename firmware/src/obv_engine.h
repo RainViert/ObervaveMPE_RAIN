@@ -157,7 +157,8 @@ static part_t pt[NPART] = {{&live_p[0], 0, 0, 0, 0, 60 << 16}, {&live_p[1], 0, 0
                             {&live_p[2], 0, 0, 0, 0, 60 << 16}, {&live_p[3], 0, 0, 0, 0, 60 << 16}};
 /* (RAIN 28) the drum kit's pieces (obv_patches.h KIT_PC): a sound each, in voices whose kp is set. Their numbers are
  * worked out only in a block where one of them sounds */
-static patch_t kit_p[NKP];
+static patch_t kit_p[NKP], kit_base[NKP];      /* (kit_base: the pieces as made; kit_p: + the track's knobs) */
+static uint8_t kit_trk;                         /* the track whose kit played last: its knobs move the drums */
 static part_t kpt[NKP];
 static uint8_t start_kp;                        /* voice_start: the piece the next voice plays (+ 1), 0 the track's sound */
 static const part_t *vpart(const voice_t *v) { return v->kp ? &kpt[(v->kp - 1u) % NKP] : &pt[v->part]; }
@@ -281,6 +282,7 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
             for (v = 0; v < NV; v++)
                 if (vc[v].kp == KP_OHAT + 1u && vc[v].part == part) vc[v].gate = 0;
         kpt[k].lfo_ph = 0;                      /* (the clap's flutter starts with the hit) */
+        kit_trk = (uint8_t)part;
         v = voice_alloc(part);
         start_kp = (uint8_t)(k + 1u);
         voice_start(&vc[v], part, KIT_NOTE[k], vel, 0, 0);
@@ -948,8 +950,24 @@ static void engine_audio(int32_t *out, uint32_t n)
                     if (vc[v].gate && vc[v].ae.stage == E_SUS) vc[v].gate = 0;
                     kl |= 1u << ((vc[v].kp - 1u) % NKP);
                 }
-            for (p = 0; p < NKP; p++)
-                if (kl >> p & 1u) { lfo_tick(&kpt[p]); block_globals(&kpt[p]); }
+            if (kl) {   /* the kit track's CUTOFF, RESO, ENV AMT, RELEASE (= the decay too: one-shots), DRIVE move every drum
+                         * by how far they are from their defaults: each keeps its own character */
+                static const uint8_t KN[6] = {P_CUTOFF, P_RESO, P_FENV_AMT, P_AR, P_AD, P_DRIVE};
+                const uint8_t *tv = pt[kit_trk % NPART].p->v;
+                int32_t dl[6];
+                uint32_t j;
+                for (j = 0; j < 6u; j++) {
+                    uint32_t q = j == 4u ? P_AR : KN[j];   /* (RELEASE moves the decay as well) */
+                    dl[j] = (int32_t)tv[q] - (int32_t)PDEF[q].def;
+                }
+                for (p = 0; p < NKP; p++) {
+                    if (!(kl >> p & 1u)) continue;
+                    for (j = 0; j < 6u; j++)
+                        kit_p[p].v[KN[j]] = (uint8_t)clampi((int32_t)kit_base[p].v[KN[j]] + dl[j], 0, PDEF[KN[j]].max);
+                    lfo_tick(&kpt[p]);
+                    block_globals(&kpt[p]);
+                }
+            }
         }
         for (v = 0; v < NV; v++) {
             if (vc[v].ae.stage == E_IDLE && !vc[v].gate) {
@@ -1076,7 +1094,8 @@ static void engine_init(void)
         pt[v].lfo_rnd_b = xorshift(&rnd_state);
     }
     for (v = 0; v < NKP; v++) {                 /* (RAIN 28) the drum pieces, ready (their CUTOFF / RESO not gliding in) */
-        patch_from_factory(&kit_p[v], &KIT_PC[v]);
+        patch_from_factory(&kit_base[v], &KIT_PC[v]);
+        kit_p[v] = kit_base[v];
         kpt[v].p = &kit_p[v];
         kpt[v].last_pitch16 = 60 << 16;
         kpt[v].lfo_rnd_a = xorshift(&rnd_state);
