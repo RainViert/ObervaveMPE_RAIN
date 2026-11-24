@@ -161,7 +161,8 @@ static patch_t kit_p[NKT], kit_base[NKT];      /* (kit_base: the programs as sav
 static volatile uint8_t kit_busy;
 #define OUT_LIM 24576u                          /* (RAIN 32) the leveller's ceiling: 0.75 of full scale */
 static uint32_t out_env;                        /* its peak follower (the output stage's input, Q15) */
-static volatile uint8_t ctl_kit[NPART][12];     /* (RAIN 31) each track's kit keys as played: 0 silent, 1..NKP a synthesized
+static volatile uint8_t ctl_kit[NPART][12];
+static volatile int8_t ctl_ktune[NPART][12];   /* (RAIN 33) each kit key's tuning, semitones */     /* (RAIN 31) each track's kit keys as played: 0 silent, 1..NKP a synthesized
                                                  * drum, NKP + 1 the key's program (kit_base[NKP + pitch class]) */               /* the main loop is copying kit_base: this block keeps kit_p as it was */
 static uint8_t kit_trk;                         /* the track whose kit played last: its knobs move the drums */
 static part_t kpt[NKT];
@@ -287,6 +288,7 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
         if (!e) return;                         /* (a key set to OFF) */
         if (e <= NKP) { k = e - 1u; at = KIT_NOTE[k]; }
         else { k = NKP + pc; at = note; }
+        at = (uint32_t)clampi((int32_t)at + ctl_ktune[part % NPART][pc], 0, 127);   /* (RAIN 33) the key's tuning */
         if (pc == 6u || pc == 8u)               /* a closed hat (F#, G#) cuts the open one (A#) */
             for (v = 0; v < NV; v++)
                 if (vc[v].kp && vc[v].part == part && vc[v].note % 12u == 10u) vc[v].gate = 0;

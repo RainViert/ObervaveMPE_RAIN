@@ -1,0 +1,16 @@
+# (RAIN 33) DRUM KIT (program 71): D played, then D held + ALGORITHM up 7 (a fifth), D again; then down 19 (an octave below)
+3000 midi 0xC0 70 0
+3300 midi 0x90 50 110
+3340 midi 0x80 50 0
+4500 keys 0x200
+4700 enc 1 7
+4800 shot
+5000 keys 0
+5300 midi 0x90 50 110
+5340 midi 0x80 50 0
+6500 keys 0x200
+6700 enc 1 -19
+6800 keys 0
+7100 midi 0x90 50 110
+7140 midi 0x80 50 0
+8300 end
