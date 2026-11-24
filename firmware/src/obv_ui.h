@@ -294,6 +294,7 @@ static void ui_seq_top(uint32_t t, const char *view, const char *mid, const char
         char tl[2] = {(char)('A' + i), 0};
         int32_t x = 3 + (int32_t)i * 15;
         uint16_t c = C_TRKC[i];
+        if (i >= 2u && pat_xpat()) continue;    /* (RAIN 41) an MPE pattern: no C, D */
         if (i == t) { cv_rect(x, 3, 13, 17, c); cv_text(x + 7 - text_w(&FONT_S, tl) / 2, 3, &FONT_S, tl, C_PANEL); }
         else {
             uint16_t d = on >> i & 1u ? blend565(C_PANEL, c, 170) : C_KNOB_HI;
@@ -417,6 +418,16 @@ static void ui_seq_track_row(uint32_t t, uint32_t sel, const char *title, uint16
     uint32_t len = pat.trk[t].len, i;
     uint16_t c = C_TRKC[t % 4u], dim = blend565(C_PANEL, c, 110);
     char tl[2] = {(char)('A' + t), 0};
+    if (t >= 2u && pat_xpat()) {                /* (RAIN 41) an MPE pattern: C and D's rows hold A's expression, no track */
+        cv_begin(240, 36, C_PANEL);
+        if (t == 2u) {
+            cv_text(36, 2, &FONT_S, "MPE PATTERN", C_DIMT);
+            cv_text(36, 18, &FONT_S, "C+D HOLD A'S EXPRESSION", C_DIMT);
+        }
+        if (t == 3u) cv_rect(0, 35, 240, 1, C_RULE);
+        cv_blit(0, 24 + (int32_t)t * 36);
+        return;
+    }
     cv_begin(240, 36, sel ? C_KNOB : C_PANEL);
     if (sel) cv_rect(0, 0, 3, 36, c);
     if (sel) { cv_rect(7, 7, 22, 22, c); cv_text(18 - text_w(&FONT_S, tl) / 2, 10, &FONT_S, tl, C_PANEL); }

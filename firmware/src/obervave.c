@@ -2456,10 +2456,13 @@ static void trk_select(uint32_t t)
 {
     static char msg[20];
     t %= NTRK;
+    if (t >= 2u && pat_xpat()) {                /* (RAIN 41) an MPE pattern: no C, D (A cleared frees them) */
+        t = 1u;
+        if (t == seq_trk) { say("MPE PATTERN: NO C, D"); return; }
+    }
     if (t != seq_trk) { seq_trk = t; step_held = -1; audition_off(); entry_reset(); }
     msg[0] = 0; scat(msg, "TRACK "); msg[6] = TRK_L[t]; msg[7] = 0;
-    if (t >= 2u && pat_xpat()) scat(msg, ": A'S MPE (REC HELD: FREE)");   /* (RAIN 37) */
-    else if (!pat.trk[t].len) scat(msg, is_seq_page(page) && seq_view == SV_TRACKS ? " OFF: " NM_K3 " = ON" : " OFF: " NM_K1 " = ON");
+    if (!pat.trk[t].len) scat(msg, is_seq_page(page) && seq_view == SV_TRACKS ? " OFF: " NM_K3 " = ON" : " OFF: " NM_K1 " = ON");
     say(msg);
     dirty_page = dirty_steps = dirty_tags = dirty_hdr = 1;
 }
@@ -2706,6 +2709,7 @@ static void app_main(void)
         if (dirty_steps) dirty_page = 1;
 #endif
         rep_poll();                             /* (RAIN 38) REC REPLACE */
+        if (seq_trk >= 2u && pat_xpat()) trk_select(1);   /* (RAIN 41) an MPE pattern came: C, D are none */
         take_check();
         while (arp_qr != arp_qw) {              /* REC with the arp on: what it plays is recorded, where it played it */
             arpev_t ev;
