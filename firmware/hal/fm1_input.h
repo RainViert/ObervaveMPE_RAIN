@@ -101,7 +101,8 @@ static volatile struct {
 } fm1_in;
 static uint8_t fm1_led[FM1_NCOL];
 #ifndef FM1_GLOW_NS
-#define FM1_GLOW_NS 4000u        /* the glow pulse a frame (ns); a lit LED ~95 us: ~1/24 the brightness */
+#define FM1_GLOW_NS 8000u        /* the glow pulse a frame (ns); a lit LED ~95 us: ~1/12 the brightness ((RAIN 49) was 4000,
+                                  * ~1/24: too dark; past the 595's shift the rest is waited for in the ISR) */
 #endif
 #define FM1__NS_T(ns) (((uint32_t)(ns) * FM1_TICKS_PER_US + 500u) / 1000u)   /* ns -> TIMER4 ticks */
 static uint8_t fm1_led_dim[FM1_NCOL];   /* same layout as fm1_led: the glow */
