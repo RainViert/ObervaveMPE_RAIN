@@ -3,6 +3,13 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain39 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- REC held 1.2 s while recording empties the track (steps, lanes, an MPE pattern's expression) and goes on recording.
+- Recording, the screens show the bar the track is in ("2/4") as PLAY does, in red, instead of REC.
+
 ## 3.5-rain38 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

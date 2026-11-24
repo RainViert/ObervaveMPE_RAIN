@@ -199,6 +199,7 @@ static uint32_t mix_row;                        /* the mixer page's knobs: 0 LEV
 /* the sequencer, as the panel sees it */
 enum { REC_OFF, REC_READY, REC_ON };            /* REC: off, armed (the first note starts the loop), recording */
 static uint32_t seq_trk, seq_cur[NTRK], seq_pg[NTRK], rec, pat_edited, seq_back = PG_PERFORM;
+static const char *rec_bar(uint32_t t);        /* (RAIN 39) */
 static uint32_t rec_down, rec_down_t, beat_seen, beat_t;   /* rec_down: REC held since rec_down_t */
 static uint32_t rec_wait;                       /* a track + 1 that REC waits for: it records from its start on the bar */
 static struct { uint16_t step; uint32_t t; } rec_open[128];   /* a recorded note still held: where and when it began */
@@ -1315,7 +1316,7 @@ static void draw_steps(void)
     scat(l, "  PAT ");
     fmt_u(l + slen(l), set.pat + 1u);
     ui_steps(t, seq_pg[t] * 16u, sel, ctl_seq_run && len ? (int32_t)ph : -1, rec, l,
-             rec == REC_ON ? "REC" : rec == REC_READY ? "REC READY" : ctl_seq_run ? "PLAY" : "STOP");
+             rec == REC_ON ? rec_bar(t) : rec == REC_READY ? "REC READY" : ctl_seq_run ? "PLAY" : "STOP");
 }
 
 /* the hint lines under the strip: what the keys do right now (a toast after an action, else a slow rotation) */
@@ -1948,6 +1949,16 @@ static void seq_view_knob(knob_view_t *k, uint32_t i)
     }
 }
 
+/* (RAIN 39) the bar the track plays, of how many ("2/4"), while it records: as PLAY shows it */
+static const char *rec_bar(uint32_t t)
+{
+    static char b[12];
+    uint32_t len = pat.trk[t % NTRK].len, ph = len ? ui_seq_pos[t % NTRK] % len : 0u;
+    b[0] = 0;
+    if (!ctl_seq_run || !len || ctl_count) { scat(b, "REC"); return b; }
+    fmt_u(b, ph / 16u + 1u); scat(b, "/"); fmt_u(b + slen(b), (len + 15u) / 16u);
+    return b;
+}
 /* the full screen: what to draw (the main loop calls these when something changed) */
 static void draw_seq_top(void)
 {
@@ -1959,7 +1970,8 @@ static void draw_seq_top(void)
     if (pat_queue) { scat(mid, ">"); fmt_u(mid + slen(mid), pat_queue); }
     if (trk_silent(t)) scat(mid, " MUTE");
     if (slen(SV_NAME[SV_EFF]) + slen(mid) < 13u) fmt_u(right, ctl_ext_quarter ? 60u * FS / ctl_ext_quarter : set.tempo);   /* (the tempo, where it fits) */
-    scat(right, rec == REC_ON ? " REC" : rec == REC_READY ? " ARMED" : ctl_seq_run ? " PLAY" : " STOP");
+    if (rec == REC_ON) { scat(right, " "); scat(right, rec_bar(t)); } else
+    scat(right, rec == REC_READY ? " ARMED" : ctl_seq_run ? " PLAY" : " STOP");
     ui_trk = t;
     ui_seq_top(t, layer == L_SEQ ? "SEQ KEYS" : layer == L_EDIT ? "ERASE" : SV_NAME[SV_EFF], mid, right,
                rec ? C_RED : ctl_seq_run ? C_AMBER : C_DIMT, ctl_trk_on);
@@ -2113,7 +2125,7 @@ static void draw_seq_tracks(void)
         fmt_u(ti + slen(ti), trk_prog[t] + 1u); scat(ti, " "); scat(ti, nm);
         if (trk_edited[t]) scat(ti, "*");
         if (rec == REC_ON && t == seq_trk)      /* the track REC writes: REC, or NEXT while it waits for the bar */
-            ui_seq_track_row(t, 1, ti, C_CREAM, rec_wait ? "NEXT" : "REC", C_RED, w0, ph);
+            ui_seq_track_row(t, 1, ti, C_CREAM, rec_wait ? "NEXT" : rec_bar(t), C_RED, w0, ph);
         else
         {
         static char bb[NTRK][8];                /* playing, longer than a bar: which bar of how many */
@@ -2509,8 +2521,10 @@ static void trk_clear(void)
     for (n = 0; n < pat.trk[seq_trk].len; n++) step_clear(seq_step(seq_trk, n));
     for (n = 0; n < NLANE; n++) lane_clear(&pat.lane[seq_trk % NTRK][n]);
     pat_edited = 1;
-    if (rec == REC_ON) { rec = ctl_seq_run ? REC_READY : REC_OFF; rec_wait = 0; }
+    /* (RAIN 39) recording, it goes on recording into the empty track */
+    if (rec == REC_ON && !ctl_seq_run) { rec = REC_OFF; rec_wait = 0; }
     memset(rec_open, 0, sizeof rec_open);
+    memset(rec_on_bits[seq_trk % NTRK], 0, sizeof rec_on_bits[0]);
     m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[seq_trk % NTRK]; m[7] = 0; scat(m, " CLEARED"); say(m);
     dirty_tags = dirty_steps = dirty_page = 1;
 }
