@@ -46,6 +46,8 @@ typedef struct {
     int32_t dsd[3], ksd[3];                     /* (RAIN 12) the matrix on its sends into DELAY, DELAY 2, REVERB: the change
                                                  * of the track's send (-127..127), as gains this block (Q15, 0: none) */
     uint8_t kp;                                 /* (RAIN 28) a drum kit's piece + 1 (its own sound, kpt[]), 0: the track's */
+    uint8_t xon, xb, xp, xs;                    /* (RAIN 37) an MPE pattern's note: which of its bend, pressure, slide it has
+                                                 * had (bits 0..2), and their values (as ctl_sx) */
 } voice_t;
 
 /* four sounds, one per track (A's also sets the effects). The main loop writes, the ISR reads. */
@@ -104,7 +106,10 @@ static volatile uint8_t ctl_mm_used[NPART];     /* a slot of the track is in use
 static volatile uint8_t ctl_mm_feeds;           /* (RAIN 12) bit 0: a slot sends into DELAY, 1: DELAY 2, 2: REVERB */
 static volatile uint8_t ctl_sx[NPART][3];     /* (RAIN 36) the sequencer's expression per track, from its lanes: bend (128 the
                                                  * middle), pressure 0..127, slide (CC 74, 64 the middle) */
-static volatile uint8_t ctl_sx_on[NPART];       /* bit 0 bend, 1 pressure, 2 slide: a lane plays it (else none) */
+static volatile uint8_t ctl_sx_on[NPART];
+static volatile uint8_t ctl_nx[4][4];           /* (RAIN 37) an MPE pattern: track A's step playing, its notes' expression:
+                                                 * note (0 none), bend, pressure, slide (0xFF: as before) */
+static volatile uint8_t ctl_nx_on;              /* track A's pattern is an MPE pattern */       /* bit 0 bend, 1 pressure, 2 slide: a lane plays it (else none) */
 static volatile uint8_t ctl_at[NPART];          /* channel pressure (aftertouch) per track, for MPE's PRESS without MPE */
 static uint32_t ev_ch;                          /* (ISR) the event being handled: its MPE channel + 1, else 0 */
 static void note_event_ch(uint32_t part, uint32_t on, uint32_t note, uint32_t vel, uint32_t ch)
@@ -211,6 +216,7 @@ static void voice_start(voice_t *v, uint32_t part, uint32_t note, uint32_t vel, 
     v->lfo_blk = 0;
     v->lfo_fade = pv[P_LFO_DELAY] ? 0 : 32767;
     v->mch = (uint8_t)ev_ch;                    /* (RAIN) MPE: from its channel's values, no sweep from 0 */
+    v->xon = 0;                                 /* (RAIN 37) */
     if (ev_ch) {
         v->mbend = mpe_bend[(ev_ch - 1u) & 15u] * 16;
         v->mpress = mpe_press[(ev_ch - 1u) & 15u] * 256;
@@ -759,11 +765,22 @@ static void voice_block(voice_t *v, uint32_t card)
     p8 = (v->pitch16 >> 8) + g->bend8 + ctl_tune8 + v->det8 + ((VINT_TUNE8[card % NCARD] * vint) >> 7) + ((v->drift * vint) >> 10);
     p8 += (lfo * g->wheel_q * 4) >> 15;         /* the wheel's vibrato */
     xf = v->mch ? 3u : 0u;
-    if (!v->mch && ctl_sx_on[v->part % NPART]) {   /* (RAIN 36) the track's recorded expression: as an MPE note's */
-        uint32_t pa = v->part % NPART, on = ctl_sx_on[pa];
-        if (on & 1u) p8 += (((int32_t)ctl_sx[pa][0] * 64 - 8192) * (int32_t)(ctl_mpe_range ? ctl_mpe_range : pv[P_BEND]) * 256) >> 13;
-        if (on & 2u) { mq_p = (int32_t)ctl_sx[pa][1] * 258; xf |= 1u; }
-        if (on & 4u) { mq_s = ((int32_t)ctl_sx[pa][2] - 64) * 512; xf |= 2u; }
+    if (!v->mch && !v->part && ctl_nx_on && !v->kp) {   /* (RAIN 37) an MPE pattern: this note's own expression, held */
+        uint32_t k;
+        for (k = 0; k < 4u; k++)
+            if (ctl_nx[k][0] == v->note) {
+                if (ctl_nx[k][1] != 0xFFu) { v->xb = ctl_nx[k][1]; v->xon |= 1u; }
+                if (ctl_nx[k][2] != 0xFFu) { v->xp = ctl_nx[k][2]; v->xon |= 2u; }
+                if (ctl_nx[k][3] != 0xFFu) { v->xs = ctl_nx[k][3]; v->xon |= 4u; }
+                break;
+            }
+    }
+    if (!v->mch && (v->xon || ctl_sx_on[v->part % NPART])) {   /* (RAIN 36) the recorded expression: as an MPE note's */
+        uint32_t pa = v->part % NPART, on = v->xon ? v->xon : ctl_sx_on[pa];
+        int32_t xb = v->xon ? v->xb : ctl_sx[pa][0], xp = v->xon ? v->xp : ctl_sx[pa][1], xs = v->xon ? v->xs : ctl_sx[pa][2];
+        if (on & 1u) p8 += ((xb * 64 - 8192) * (int32_t)(ctl_mpe_range ? ctl_mpe_range : pv[P_BEND]) * 256) >> 13;
+        if (on & 2u) { mq_p = xp * 258; xf |= 1u; }
+        if (on & 4u) { mq_s = (xs - 64) * 512; xf |= 2u; }
         if ((xf & 1u) && ctl_mpe_pdst == MD_VIB) p8 += (((lfo * mq_p) >> 15) * (int32_t)ctl_mpe_pamt) >> 13;
         if ((xf & 2u) && ctl_mpe_sdst == MD_VIB) p8 += (((lfo * (mq_s < 0 ? -mq_s : mq_s)) >> 15) * (int32_t)ctl_mpe_samt) >> 13;
     }
