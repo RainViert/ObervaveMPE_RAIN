@@ -833,19 +833,34 @@ static void rec_note(uint32_t on, uint32_t note, uint32_t vel)
  * the lane of that parameter (a new one if there is none yet, NLANE per track). While it turns, the player leaves the
  * lane to the hand (ctl_auto_hold, let go 250 ms after the last turn: auto_poll) */
 static uint32_t auto_hold_t[NTRK][NLANE];
-static void auto_rec(uint32_t p)
+static void lane_rec(uint32_t t, uint32_t p, uint32_t val)
 {
     static char m[32];
-    uint32_t t = seq_trk % NTRK, l, f = NLANE, len = pat.trk[t].len;
-    if (rec != REC_ON || !ctl_seq_run || !len || !(ctl_trk_on >> t & 1u) || is_a_only(p) || p >= NPARAM) return;
+    uint32_t l, f = NLANE, len;
+    t %= NTRK; len = pat.trk[t].len;
+    if (rec != REC_ON || !ctl_seq_run || !len || !(ctl_trk_on >> t & 1u)) return;
     for (l = 0; l < NLANE; l++) { if (pat.lane[t][l].param == p) break; if (f == NLANE && pat.lane[t][l].param == AUTO_NONE) f = l; }
     if (l == NLANE) {
         if (f == NLANE) { m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": 4 KNOBS RECORDED"); say(m); return; }
         l = f; lane_clear(&pat.lane[t][l]); pat.lane[t][l].param = (uint8_t)p;
     }
-    pat.lane[t][l].v[ui_seq_pos[t] % len] = live_p[t].v[p];
+    pat.lane[t][l].v[ui_seq_pos[t] % len] = (uint8_t)val;   /* (on the step playing: in the track's step raster) */
     ctl_auto_hold[t] |= 1u << l; auto_hold_t[t][l] = fm1_ms;
     pat_edited = 1;
+}
+static void auto_rec(uint32_t p)
+{
+    if (is_a_only(p) || p >= NPARAM) return;
+    lane_rec(seq_trk, p, live_p[seq_trk % NTRK].v[p]);
+}
+/* (RAIN 36) REC takes the expression too: pitch bend, pressure, slide, into lanes of the track recording (from the MPE
+ * note played last, or the main channel); playing back, the track's notes get them as an MPE note would */
+static int xlane_has(uint32_t t, uint32_t p) { uint32_t l; for (l = 0; l < NLANE; l++) if (pat.lane[t % NTRK][l].param == p) return 1; return 0; }
+static uint8_t xrec_ch;                         /* the member channel + 1 of the MPE note played last */
+static void xrec(uint32_t t, uint32_t x, int32_t val)
+{
+    if (t % NTRK != seq_trk % NTRK || !rec_keys()) return;
+    lane_rec(t, AUTO_XB + x, (uint32_t)clampi(val, 0, 254));
 }
 static void auto_poll(void)                     /* (main loop) a lane let go: the player has it again */
 {
@@ -2277,11 +2292,18 @@ static void midi_in(uint32_t notes_only)
         }
         if (ctl_mpe_range && ch > 1u) {         /* (RAIN) MPE: channels 2..16 are track A's notes, each its own */
             uint32_t c = (ch - 1u) & 15u;
-            if (kind == 0x90u && d2) { note_event_ch(0, 1, d1, d2, c); rec_from(0, 1, d1, d2); }
+            if (kind == 0x90u && d2) {
+                note_event_ch(0, 1, d1, d2, c); rec_from(0, 1, d1, d2);
+                xrec_ch = (uint8_t)(c + 1u);    /* (RAIN 36) its expression is the one recorded; its bend from where it starts */
+                if (mpe_bend[c] || xlane_has(0, AUTO_XB)) xrec(0, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
+            }
             else if (kind == 0x80u || kind == 0x90u) { note_event_ch(0, 0, d1, 0, c); rec_from(0, 0, d1, 0); }
-            else if (kind == 0xE0u) mpe_bend[c] = (int16_t)((int32_t)(d1 | d2 << 7) - 8192);
-            else if (kind == 0xD0u) mpe_press[c] = (uint8_t)d1;
-            else if (kind == 0xB0u && d1 == 74u) mpe_slide[c] = (int8_t)((int32_t)d2 - 64);
+            else if (kind == 0xE0u) {
+                mpe_bend[c] = (int16_t)((int32_t)(d1 | d2 << 7) - 8192);
+                if (xrec_ch == c + 1u) xrec(0, 0, ((int32_t)mpe_bend[c] + 8192) >> 6);
+            }
+            else if (kind == 0xD0u) { mpe_press[c] = (uint8_t)d1; if (xrec_ch == c + 1u) xrec(0, 1, d1); }
+            else if (kind == 0xB0u && d1 == 74u) { mpe_slide[c] = (int8_t)((int32_t)d2 - 64); if (xrec_ch == c + 1u) xrec(0, 2, d2); }
             continue;                           /* (a member's other messages: none of the track's) */
         }
         if (ctl_mpe_range) ;                    /* (channel 1, the MPE master: track A's as ever) */
@@ -2307,8 +2329,8 @@ static void midi_in(uint32_t notes_only)
             note_in(0, d1, 0);
             dirty_page |= rec || is_seq_page(page); dirty_steps = 1;
         }
-        else if (kind == 0xE0u) ctl_bend = (int32_t)(d1 | d2 << 7) - 8192;
-        else if (kind == 0xD0u) ctl_at[set.midi_ch ? 0u : seq_trk % NTRK] = (uint8_t)d1;   /* (RAIN 9) */
+        else if (kind == 0xE0u) { ctl_bend = (int32_t)(d1 | d2 << 7) - 8192; xrec(seq_trk, 0, (ctl_bend + 8192) >> 6); }   /* (RAIN 36) */
+        else if (kind == 0xD0u) { ctl_at[set.midi_ch ? 0u : seq_trk % NTRK] = (uint8_t)d1; xrec(set.midi_ch ? 0u : seq_trk, 1, d1); }   /* (RAIN 9, 36) */
         else if (kind == 0xC0u && d1 < NPROG) { trk_load(set.midi_ch ? 0u : seq_trk, d1); dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1; }
         else if (kind == 0xB0u) {
             if (d1 == 7u) ctl_cc7 = d2;
