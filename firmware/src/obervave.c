@@ -760,7 +760,19 @@ static void step_add(step_t *st, uint32_t note, uint32_t vel)   /* a note into a
 
 /* the steps where this recording started a note (a legato note ends there, not into it) */
 static uint32_t rec_on_bits[NTRK][SEQ_STEPS / 32u];
-static void rec_begin(void) { rec = REC_ON; undo_save(); memset(rec_on_bits, 0, sizeof rec_on_bits); }
+/* (RAIN 48) undo per pass: recording, the pattern is kept (undo_pat) before the first change of every pass of the
+ * track over its steps, so EDIT + OCT- takes back the last pass that changed something, the take going on */
+static uint32_t pass_saved, pass_pos = 0xFFFFFFFFu;
+static void pass_change(void) { if (!pass_saved) { undo_save(); pass_saved = 1; } }
+static void pass_poll(void)                     /* (main loop) the recording track back at its first step: a new pass */
+{
+    uint32_t t = seq_trk % NTRK, len = pat.trk[t].len, p;
+    if (rec != REC_ON || !ctl_seq_run || !len) { pass_pos = 0xFFFFFFFFu; return; }
+    p = ui_seq_tick_pass[t];
+    if (pass_pos != 0xFFFFFFFFu && p != pass_pos) pass_saved = 0;
+    pass_pos = p;
+}
+static void rec_begin(void) { rec = REC_ON; undo_save(); pass_saved = 1; memset(rec_on_bits, 0, sizeof rec_on_bits); }
 #define REC_ON_AT(t, s) (rec_on_bits[(t) % NTRK][((s) % SEQ_STEPS) >> 5] >> ((s) & 31u) & 1u)
 /* (RAIN 38) REC REPLACE: each step of the recording track the playhead comes to loses its notes and its recorded
  * expression (a step this take has played into stays; the knobs' lanes stay) */
@@ -772,7 +784,7 @@ static void rep_clear(uint32_t t, uint32_t s)
     step_t *st;
     if (REC_ON_AT(t, s)) return;
     st = seq_step(t, s);
-    if (st->note[0]) { step_clear(st); pat_edited = 1; }
+    if (st->note[0]) { pass_change(); step_clear(st); pat_edited = 1; }
     for (l = 0; l < NLANE; l++)
         if (pat.lane[t][l].param >= AUTO_XB && pat.lane[t][l].param <= AUTO_XS && pat.lane[t][l].v[(s + trk_off(t)) % SEQ_STEPS] != AUTO_NONE) {
             pat.lane[t][l].v[(s + trk_off(t)) % SEQ_STEPS] = AUTO_NONE; pat_edited = 1;
@@ -826,6 +838,7 @@ static void rec_note(uint32_t on, uint32_t note, uint32_t vel)
         step_t *st;
         uint32_t was;
         rep_poll();                             /* (RAIN 38) REPLACE: the steps up to here cleared first */
+        pass_change();                          /* (RAIN 48) */
         st = seq_step(t, s0);
         if (rec_from_arp) take_step(t, s0, st);
         was = st->note[0];
@@ -876,6 +889,7 @@ static void lane_rec(uint32_t t, uint32_t p, uint32_t val)
     t %= NTRK; len = pat.trk[t].len;
     if (rec != REC_ON || !ctl_seq_run || !len || !(ctl_trk_on >> t & 1u)) return;
     rep_poll();                                 /* (RAIN 38) */
+    pass_change();                              /* (RAIN 48) */
     for (l = 0; l < NLANE; l++) { if (pat.lane[t][l].param == p) break; if (f == NLANE && pat.lane[t][l].param == AUTO_NONE) f = l; }
     if (l == NLANE) {
         if (f == NLANE) { m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": 4 KNOBS RECORDED"); say(m); return; }
@@ -923,6 +937,7 @@ static void xnote(uint32_t c, uint32_t f, int32_t val)   /* channel c's note: be
     if (!n) return;
     if (!xpat_ready()) { if (xrec_ch == c + 1u) xrec(0, f, val); return; }   /* (RAIN 36: for the track) */
     rep_poll();
+    pass_change();                              /* (RAIN 48) */
     e = xtab(ui_seq_pos[0] % pat.trk[0].len);
     for (k = 0; k < 4u; k++) { if (e[k * 4u] == n) break; if (f0 == 4u && !e[k * 4u]) f0 = k; }
     if (k == 4u) {                              /* a new note on this step */
@@ -2776,6 +2791,7 @@ static void app_main(void)
         if (dirty_steps) dirty_page = 1;
 #endif
         rep_poll();                             /* (RAIN 38) REC REPLACE */
+        pass_poll();                            /* (RAIN 48) */
         if (seq_trk >= 2u && pat_xpat()) trk_select(1);   /* (RAIN 41) an MPE pattern came: C, D are none */
         take_check();
         while (arp_qr != arp_qw) {              /* REC with the arp on: what it plays is recorded, where it played it */

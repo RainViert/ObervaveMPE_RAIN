@@ -1,0 +1,20 @@
+# (RAIN 48) pass 1: hits on steps 1 and 5; pass 2: hits on steps 9 and 13; in pass 3 EDIT + OCT- (recording on):
+# pass 2 goes, steps 1 and 5 stay; PLAY ends the take, then plays it
+3000 midi 0xC0 70 0
+4000 btn 11
+4200 btn 13
+4500 midi 0x90 48 110
+4560 midi 0x80 48 0
+5000 midi 0x90 50 110
+5060 midi 0x80 50 0
+7500 midi 0x90 48 110
+7560 midi 0x80 48 0
+8000 midi 0x90 50 110
+8060 midi 0x80 50 0
+8700 btndown 6
+8750 btn 0
+8800 btnup 6
+8900 shot
+9500 btn 12
+10000 btn 12
+12000 end
