@@ -3,6 +3,17 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain25 – 2026-11-24
+
+A personal variant (RainViert/obervave), not an official OberVave release. A diagnosis build for the second core.
+
+- The second core's start goes in steps, each kept through a reset: it answered, a job in RAM, the self-test in
+  flash, the effects running (and how many blocks it did). The CHANNELS page shows the step it got to (S) and the
+  blocks (J) after a failure.
+- A reset while the second core runs (not a power-on) starts the next boot on one core and switches it off: no
+  second crash in a row, so no rescue mode (rain24 crashed twice). A real power-on clears every old mark.
+- 1C-5: a reset while it ran; 1C-6: a job in RAM came back wrong.
+
 ## 3.5-rain24 – 2026-11-23
 
 A personal variant (RainViert/obervave), not an official OberVave release.

@@ -995,6 +995,9 @@ static void engine_audio(int32_t *out, uint32_t n)
     if (pipe) {                                 /* (RAIN 17) the effects' returns of the block before */
         if (fxq_ready) {
             if (!kicked || cpu1_wait() != 0) fx_job(snd_cur ^ 1u);   /* (core 1 refused or gave up: here, this once) */
+#ifndef OBV_HOST
+            else { c1_diag.stage = 5; c1_diag.jobs++; }   /* (RAIN 25) the diagnosis: one more block from core 1 */
+#endif
             for (i = 0; i < 2u * n && i < 2u * fxq_n; i++) out[i] = sat16(soft16(out[i] + fx_wet[i]));
         }
         fxq_ready = 1; fxq_n = n;

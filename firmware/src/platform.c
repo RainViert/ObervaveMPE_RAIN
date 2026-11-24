@@ -47,7 +47,7 @@ static int host_c1 = -1;
 static int cpu1_on(void) { if (host_c1 < 0) { const char *e = getenv("OBV_CORES"); host_c1 = e && e[0] == '2'; } return host_c1; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { if (!cpu1_on()) return 0; fn(arg); return 1; }
 static int cpu1_wait(void) { return 0; }
-static uint32_t c1_msg;
+static uint32_t c1_msg, c1_last_stage, c1_last_jobs;
 static uint8_t c1_tries, c1_reached;
 static uint8_t cpu1_bad;                       /* (RAIN 18) OBV_C1BAD=1: as a device whose second core failed */
 static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = e && e[0] >= '1' && e[0] <= '4' ? (uint8_t)(e[0] - '0') : 0; }
@@ -519,8 +519,26 @@ static uint8_t cpu1_bad;                        /* (RAIN 18) the second core fai
 static volatile uint32_t c1_test_out;
 static uint32_t c1_lcg(uint32_t x) { uint32_t i; for (i = 0; i < 64u; i++) x = x * 1664525u + 1013904223u; return x; }
 static void c1_selftest(uint32_t a) { c1_test_out = c1_lcg(a); }
+/* (RAIN 25) the diagnosis: how far the second core got, kept through a reset (.noinit). stage 1 start called, 2 it
+ * answered, 3 a job in RAM done, 4 the self-test in flash done, 5 running the effects; jobs = blocks it finished */
+#define C1D_MAGIC 0x43314447u
+struct { uint32_t magic, stage, jobs, spare; } c1_diag __attribute__((section(".noinit.c1diag")));
+static uint32_t c1_last_stage, c1_last_jobs;    /* the record as this boot found it (the CHANNELS page) */
+__attribute__((section(".c1_text.t"))) static void c1_ramtest(uint32_t a) { c1_test_out = a ^ 0x5A5A5A5Au; }
+static void c1_stage(uint32_t st) { c1_diag.magic = C1D_MAGIC; c1_diag.stage = st; __asm__ volatile("csync" ::: "memory"); }
 static void cpu1_boot(void)
 {
+    uint32_t p3 = fm1_boot.p3_rst;
+    c1_last_stage = c1_diag.magic == C1D_MAGIC ? c1_diag.stage : 0u;
+    c1_last_jobs = c1_diag.magic == C1D_MAGIC ? c1_diag.jobs : 0u;
+    c1_diag.magic = C1D_MAGIC; c1_diag.stage = 0; c1_diag.jobs = 0;
+    if ((p3 & 1u) && !(p3 & (4u | 0x40u)))     /* (RAIN 25) a real power-on: no mark from before counts (the RAM keeps
+                                                 * them through a short one) */
+        fm1_c1_bar.barred = 0;
+    if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred == 3u) {   /* (RAIN 25) 5: it ran, then a reset */
+        fm1_c1_bar.barred = 0;
+        c1_state = C1_NOSTART; cpu1_bad = 5; return;
+    }
     if (fm1_c1_bar.magic == FM1_C1_BAR_MAGIC && fm1_c1_bar.barred) {   /* (RAIN 17.1) 1: a start before crashed */
         fm1_c1_bar.barred = 0;                  /* (RAIN 23) read once: the RAM keeps it through a short power-off and an
                                                  * update, so rain22 saw rain21's and never tried. The app switches the
@@ -545,6 +563,7 @@ static void cpu1_boot(void)
             }
             fm1_guard_pc_open();                /* (it boots through the chip's ROM: the PC limits open while it starts) */
             fm1_guard_bus_pause();              /* (RAIN 17.1) */
+            c1_stage(1);
             rc = fm1_cpu1_start();
             c1_msg |= fm1_guard_msg();              /* (RAIN 22) what the paused bus guard saw during the start */
             fm1_guard_bus_resume();
@@ -557,14 +576,25 @@ static void cpu1_boot(void)
                                                  * (RAIN 23) no mark left) */
     }
     c1_test_out = 0;
+    c1_stage(2);
+    c1_test_out = 0;                            /* (RAIN 25) a job in RAM first: does it run at all */
+    if (!fm1_cpu1_run(c1_ramtest, 0x12345678u) || fm1_cpu1_wait() != 0 || c1_test_out != (0x12345678u ^ 0x5A5A5A5Au)) {
+        fm1_cpu1_hold();
+        c1_state = C1_FAILED;
+        cpu1_bad = 6;                           /* 6: a job in RAM wrong */
+        return;
+    }
+    c1_stage(3);
     if (!fm1_cpu1_run(c1_selftest, 20261123u) || fm1_cpu1_wait() != 0 || c1_test_out != c1_lcg(20261123u)) {
         fm1_cpu1_hold();
         c1_state = C1_FAILED;
         cpu1_bad = 3;                           /* 3: the self-test wrong */
         return;
     }
+    c1_stage(4);
     c1_state = C1_OK;
-    fm1_c1_bar.barred = 0;                      /* (RAIN 17.1) passed */
+    fm1_c1_bar.barred = 3;                      /* (RAIN 25) running: a reset from now on (not a power-on) means it took
+                                                 * the FM-1 down: the next boot plays on one core and switches it off */
 }
 static int cpu1_on(void) { return c1_state == C1_OK && fm1_c1_on; }
 static int cpu1_run(void (*fn)(uint32_t), uint32_t arg) { return cpu1_on() ? fm1_cpu1_run(fn, arg) : 0; }

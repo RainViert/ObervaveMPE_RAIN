@@ -1140,7 +1140,7 @@ static void draw_page(void)
             c1_tag2[5] = (char)('0' + (c1_reached < 3u ? c1_reached : 0u));
             static char cpu[24];                /* the GLOBAL page: the render time of an audio half (budget 5800 us), SYNC */
             cpu[0] = 0; fmt_u(cpu, ui_render_us); scat(cpu, "us"); scat(cpu, set.sync_int ? " INT" : ctl_ext_quarter ? " CLK" : " AUTO"); scat(cpu, cpu1_on() ? " 2C" : " 1C");   /* (RAIN 17) the cores */
-            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : c1_why == 1 ? "1C-1" : c1_why == 2 ? c1_tag2 : c1_why == 3 ? "1C-3" : c1_why == 4 ? "1C-4" : "1C") : 0);
+            ui_page(t, k, seq_shown() && work_dirty() ? "NOT SAVED" : seq_shown() && pat_edited ? "EDITED" : page == PG_GLOBAL && !layer ? cpu : page == PG_OUTPUT && !layer ? LK_NAME[set.link % 3u] : page == PG_MPE2 && !layer ? (set.cores2 ? "2C" : c1_why == 1 ? "1C-1" : c1_why == 2 ? c1_tag2 : c1_why == 3 ? "1C-3" : c1_why == 4 ? "1C-4" : c1_why == 5 ? "1C-5" : c1_why == 6 ? "1C-6" : "1C") : 0);
         }
     }
 }
@@ -2451,9 +2451,9 @@ static void app_main(void)
         int32_t e;
         if (cpu1_bad) {                         /* (RAIN 18) the second core failed (its start crashed, it answered wrong or
                                                  * late): off for good, saved; the user may switch it on again */
-            static const char *const WHY[5] = {"", "CRASHED BEFORE", "NO ANSWER", "WRONG RESULT", "TOO LATE"};
+            static const char *const WHY[7] = {"", "CRASHED BEFORE", "NO ANSWER", "WRONG RESULT", "TOO LATE", "RESET WHILE RUNNING", "RAM JOB WRONG"};
             char *m = c1_text;
-            m[0] = 0; scat(m, "2C OFF: "); scat(m, WHY[cpu1_bad < 5u ? cpu1_bad : 0]);
+            m[0] = 0; scat(m, "2C OFF: "); scat(m, WHY[cpu1_bad < 7u ? cpu1_bad : 0]);
             if (cpu1_bad == 2u) {               /* (RAIN 22) for the diagnosis: the bus guard's flags, how far it got */
                 static const char HX[] = "0123456789ABCDEF";
                 uint32_t q, n = slen(m);
@@ -2467,14 +2467,15 @@ static void app_main(void)
                 static const char HX[] = "0123456789ABCDEF";
                 char *t = c1_text2;
                 uint32_t q, n = 0, v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.pc : 0u;
-                t[n++] = 'P'; t[n++] = 'C';
                 for (q = 0; q < 8u; q++) t[n++] = HX[v >> (28u - 4u * q) & 15u];
                 t[n++] = ' '; t[n++] = 'V'; t[n++] = HX[(fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.vec : 0u) & 15u];
                 v = fm1_crash.magic == FM1_CRASH_MAGIC ? fm1_crash.emu : 0u;
                 t[n++] = ' '; t[n++] = 'E'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
                 v = fm1_boot.p3_rst;
                 t[n++] = ' '; t[n++] = 'R'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
-                t[n++] = ' '; t[n++] = 'T'; t[n++] = (char)('0' + c1_tries % 10u);
+                t[n++] = ' '; t[n++] = 'S'; t[n++] = (char)('0' + c1_last_stage % 10u);   /* (RAIN 25) how far it got */
+                t[n++] = ' '; t[n++] = 'J';
+                for (q = 0; q < 6u; q++) t[n++] = HX[c1_last_jobs >> (20u - 4u * q) & 15u];
                 t[n] = 0;
             }
 #endif
