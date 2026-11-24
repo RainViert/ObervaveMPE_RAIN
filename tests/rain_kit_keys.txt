@@ -1,0 +1,19 @@
+# (RAIN 31) DRUM KIT (71): C held + PRESETS +10 -> C plays program 1; F held + PRESETS to OFF; then C, F, D
+3000 midi 0xC0 70 0
+3300 midi 0x90 48 110
+3340 midi 0x80 48 0
+3800 keys 0x80
+4000 enc 6 10
+4300 shot
+4500 keys 0
+4800 keys 0x1
+5000 enc 6 -6
+5300 shot
+5500 keys 0
+6000 midi 0x90 48 110
+6600 midi 0x80 48 0
+7000 midi 0x90 53 110
+7040 midi 0x80 53 0
+7600 midi 0x90 50 110
+7640 midi 0x80 50 0
+8500 end

@@ -197,11 +197,9 @@ static const uint8_t PF_WURLI[] = {P_O1_WAVE, W_PLS, P_O1_PW, 38, P_O2_WAVE, W_P
 /* (RAIN 28) the DRUM KIT: program 71, MODE KIT. Each key plays its own synthesized drum at its own fixed pitch, in
  * every octave (General MIDI's order where it fits): C kick, C# rim, D snare, D# clap, E snare, F low tom, F# closed
  * hat, G mid tom, G# closed hat, A high tom, A# open hat, B cymbal. The closed hats cut the open one. One-shots.
- * (RAIN 30) the SOUND KIT: program 76, MODE SNDKIT. Five places, each a program (any of 1-99, edited and saved as any
- * sound), on the keys General MIDI has for them, in every octave: C (and B) kick, D (and E) snare, D# (and C#) clap,
- * F# (and G#) closed hat, A# open hat. A drum plays at the key's note, a one-shot (its attack and decay, then it lets
- * go); the closed hat cuts the open one. The places are in the kit's spare patch bytes (KIT_AT): program + 100, else
- * the defaults: 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT. Programs 72-75 are drums for it */
+ * (RAIN 30/31) the SOUND KIT: program 76, MODE SNDKIT, its keys on programs (SKIT_DEF). In both kits every key can
+ * be set to another synthesized drum, any program 1-99 or OFF (a key held + PRESETS); the entries are the track's,
+ * kept with MEMORY's slots (set.kit). A program plays at the key's note */
 static const uint8_t PF_KIT_RIM[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_PLS, P_O2_PW, 50, P_O2_LVL, 127, P_NOISE, 70, P_FTYPE, F_BP12,
     P_CUTOFF, 104, P_RESO, 45, P_FENV_AMT, 70, P_KEYTRK, 64, P_FA, 0, P_FD, 30, P_FS, 0, P_FR, 30, P_AA, 0, P_AD, 38,
     P_AS, 0, P_AR, 38, P_DRIVE, 90, P_VEL_AMP, 80, P_VINTAGE, 0, P_SPREAD, 0, P_VOLUME, 127, X};
@@ -223,12 +221,16 @@ static const uint8_t KIT_KEY_PC[12] = {KP_KICK, KP_RIM, KP_SNARE, KP_CLAP, KP_SN
                                        KP_HTOM, KP_OHAT, KP_CYM};
 static const uint8_t KIT_NOTE[NKP] = {36, 72, 48, 60, 55, 72, 60, 65, 72, 72};   /* the kick low, the snare at C3, toms
                                                                                   * ~100 / 130 / 175 Hz */
-#define NKS 5u                                  /* the SOUND KIT's places */
-#define NKT (NKP + NKS)                         /* the engine's drum sounds: the DRUM KIT's, then the SOUND KIT's */
-enum { KS_KICK, KS_SNARE, KS_CLAP, KS_CHAT, KS_OHAT };
-static const uint8_t KIT_PC2SLOT[12] = {KS_KICK, KS_CLAP, KS_SNARE, KS_CLAP, KS_SNARE, 0xFF, KS_CHAT, 0xFF, KS_CHAT, 0xFF,
-                                        KS_OHAT, KS_KICK};
-static const uint8_t KIT_DEF_PROG[NKS] = {64, 65, 67, 66, 71};   /* 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT */
+/* (RAIN 31) a kit key's entry (set.kit[track][pitch class], kept with MEMORY's slots): 0 the kit's own default,
+ * KE_PC + i the synthesized drum i, KE_PROG + n program n (0-98), KE_OFF silent */
+#define KE_PC 1u
+#define KE_PROG (KE_PC + NKP)
+#define KE_OFF (KE_PROG + 99u)
+#define NKS 12u                                 /* a program per key */
+#define NKT (NKP + NKS)                         /* the engine's drum sounds: the synthesized ones, then one per key */
+static const uint8_t SKIT_DEF[12] = {KE_PROG + 64, KE_PROG + 67, KE_PROG + 65, KE_PROG + 67, KE_PROG + 65, KE_OFF,
+    KE_PROG + 66, KE_OFF, KE_PROG + 66, KE_OFF, KE_PROG + 71, KE_PROG + 64};   /* the SOUND KIT's: 65 KICK on C and B, 66
+    * SNARE on D and E, 68 CLAP on D# and C#, 67 HIHAT on F# and G#, 72 OPEN HAT on A#, the rest off */   /* 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT */
 static const factory_t FACT_DRUMS[4] = {{"OPEN HAT", PF_KIT_OHAT}, {"TOM", PF_KIT_TOM}, {"RIM", PF_KIT_RIM},
                                         {"CYMBAL", PF_KIT_CYM}};   /* 72-75 */
 #define NDRUMS 4u
