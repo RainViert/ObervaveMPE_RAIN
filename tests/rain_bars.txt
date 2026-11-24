@@ -1,0 +1,17 @@
+# (RAIN 43) SELECT held + the 4th white key (B3): track A 4 bars; ALGORITHM to B, SELECT + the 16th white key (G5): B 16 bars; GLOBAL: SELECT tapped still switches SYNC
+3000 btn 11
+3200 btndown 3
+3300 keys 0x40
+3400 keys 0
+3500 btnup 3
+3600 shot
+3700 enc 1 1
+3800 btndown 3
+3900 keys 0x4000000
+4000 keys 0
+4100 btnup 3
+4200 shot
+4400 btn 7
+4500 btn 3
+4600 shot
+5000 end
