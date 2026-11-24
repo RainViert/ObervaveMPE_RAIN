@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain35 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- REC keeps the velocity of a long note: a note held over more than a step and a half was written with velocity 100
+  in all its steps, the first one too (the FM-1's keys have none; MIDI and MPE do). Now its ties keep the played one,
+  as on the SMK.
+
 ## 3.5-rain34 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
