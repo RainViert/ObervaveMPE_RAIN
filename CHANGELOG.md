@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain44 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- SELECT held + two white keys held together: the chosen track plays from the one bar to the other (keys 3 and 11:
+  bars 3-11). The steps outside the window stay as they are; one key alone: bars 1 to it, as rain43. The window is
+  kept with the pattern (each track's start bar, in a byte that was unused), recording, lanes and an MPE pattern's
+  expression follow it.
+
 ## 3.5-rain43 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

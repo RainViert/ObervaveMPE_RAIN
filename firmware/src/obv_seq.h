@@ -38,14 +38,22 @@ static pattern_t pat;                           /* the pattern now: the main loo
 #define XP_M0 0xE7u
 #define XP_M1 0x5Au
 static int pat_xpat(void) { return pat.trk[2].pad[0] == XP_M0 && pat.trk[2].pad[1] == XP_M1; }
-static uint8_t *xtab(uint32_t s) { return (uint8_t *)&pat.st[2][0] + (s % SEQ_STEPS) * 16u; }
+/* (RAIN 44) a track plays a window of its 256 steps: from bar pad[1] + 1 on (C's in an MPE pattern: none); every step
+ * number the sequencer and the panel use is counted from the window's start */
+static uint32_t trk_off(uint32_t t)
+{
+    uint32_t b = pat.trk[t % NTRK].pad[1];
+    if (t % NTRK == 2u && pat_xpat()) return 0;
+    return b < 16u ? b * 16u : 0u;
+}
+static uint8_t *xtab(uint32_t s) { return (uint8_t *)&pat.st[2][0] + ((s + trk_off(0)) % SEQ_STEPS) * 16u; }
 _Static_assert(NTRK == 4u && sizeof pat.st[2] + sizeof pat.st[3] >= SEQ_STEPS * 16u, "MPE table: C and D's steps, one after the other");
 static step_t seq_xblank;
 static void step_clear(step_t *s);
 static step_t *seq_step(uint32_t t, uint32_t i)
 {
     if (t % NTRK >= 2u && pat_xpat()) { step_clear(&seq_xblank); return &seq_xblank; }
-    return &pat.st[t % NTRK][i % SEQ_STEPS];
+    return &pat.st[t % NTRK][(i + trk_off(t)) % SEQ_STEPS];
 }
 
 /* main loop -> ISR */
@@ -234,7 +242,7 @@ static void seq_auto(uint32_t t, uint32_t i)
     }
     for (l = 0; l < NLANE; l++) {
         const lane_t *a = &pat.lane[t][l];
-        uint8_t v = a->v[i % SEQ_STEPS];
+        uint8_t v = a->v[(i + trk_off(t)) % SEQ_STEPS];
         if (a->param >= AUTO_XB && a->param <= AUTO_XS) {   /* (RAIN 36) expression: held until the next value */
             uint32_t x = a->param - AUTO_XB;
             on |= 1u << x;

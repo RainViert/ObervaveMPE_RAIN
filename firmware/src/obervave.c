@@ -773,8 +773,8 @@ static void rep_clear(uint32_t t, uint32_t s)
     st = seq_step(t, s);
     if (st->note[0]) { step_clear(st); pat_edited = 1; }
     for (l = 0; l < NLANE; l++)
-        if (pat.lane[t][l].param >= AUTO_XB && pat.lane[t][l].param <= AUTO_XS && pat.lane[t][l].v[s % SEQ_STEPS] != AUTO_NONE) {
-            pat.lane[t][l].v[s % SEQ_STEPS] = AUTO_NONE; pat_edited = 1;
+        if (pat.lane[t][l].param >= AUTO_XB && pat.lane[t][l].param <= AUTO_XS && pat.lane[t][l].v[(s + trk_off(t)) % SEQ_STEPS] != AUTO_NONE) {
+            pat.lane[t][l].v[(s + trk_off(t)) % SEQ_STEPS] = AUTO_NONE; pat_edited = 1;
         }
     if (!t && pat_xpat()) { uint8_t *e = xtab(s); uint32_t k; for (k = 0; k < 16u; k++) e[k] = 0; }
 }
@@ -880,7 +880,7 @@ static void lane_rec(uint32_t t, uint32_t p, uint32_t val)
         if (f == NLANE) { m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": 4 KNOBS RECORDED"); say(m); return; }
         l = f; lane_clear(&pat.lane[t][l]); pat.lane[t][l].param = (uint8_t)p;
     }
-    pat.lane[t][l].v[ui_seq_pos[t] % len] = (uint8_t)val;   /* (on the step playing: in the track's step raster) */
+    pat.lane[t][l].v[(ui_seq_pos[t] % len + trk_off(t)) % SEQ_STEPS] = (uint8_t)val;   /* (on the step playing: in the track's step raster) */
     ctl_auto_hold[t] |= 1u << l; auto_hold_t[t][l] = fm1_ms;
     pat_edited = 1;
 }
@@ -1424,7 +1424,7 @@ static void seq_turn(uint32_t knob, int32_t e)
     else if (knob == 1) tk->div = (uint8_t)clampi((int32_t)tk->div + sg, 0, NDIV - 1);
     else if (knob == 2) tk->swing = (uint8_t)clampi((int32_t)tk->swing + e, 50, 75);
     else {                                      /* LENGTH: 0 = off .. 256 */
-        tk->len = (uint16_t)clampi((int32_t)tk->len + e, 0, (int32_t)SEQ_STEPS);
+        tk->len = (uint16_t)clampi((int32_t)tk->len + e, 0, (int32_t)(SEQ_STEPS - trk_off(t)));   /* (RAIN 44: to the end of the 256) */
         if (tk->len && seq_cur[t] >= tk->len) seq_cur[t] = tk->len - 1u;
         if (seq_pg[t] >= seq_pages(t)) seq_pg[t] = seq_pages(t) - 1u;
     }
@@ -1446,7 +1446,7 @@ static void edit_turn(uint32_t knob, int32_t e)
         say(sg > 0 ? "SHIFTED LATER" : "SHIFTED EARLIER");
     } else if (knob == 1) {
         if (sg > 0) {
-            if (2u * len > SEQ_STEPS) { say("STEPS FULL"); return; }
+            if (2u * len + trk_off(t) > SEQ_STEPS) { say("STEPS FULL"); return; }
             for (n = 0; n < len; n++) *seq_step(t, len + n) = *seq_step(t, n);
             pat.trk[t].len = (uint16_t)(2u * len);
             say("LENGTH X2");
@@ -1866,7 +1866,7 @@ static void seq_view_turn(uint32_t knob, int32_t e)
             if (!l && e > 0) l = 16;            /* (switched on: a bar) */
             else if (e > 1 || e < -1) l = e > 0 ? (l / 16 + 1) * 16 : (l - 1) / 16 * 16;   /* fast: a page of 16 */
             else l += e;
-            tk->len = (uint16_t)clampi(l, 0, (int32_t)SEQ_STEPS);
+            tk->len = (uint16_t)clampi(l, 0, (int32_t)(SEQ_STEPS - trk_off(t)));
             if (tk->len && seq_cur[t] >= tk->len) seq_cursor_set(t, tk->len - 1u);
         } else if (knob == 1) tk->div = (uint8_t)clampi((int32_t)tk->div + sg, 0, NDIV - 1);
         else if (knob == 2) tk->swing = (uint8_t)clampi((int32_t)tk->swing + e, 50, 75);
@@ -2271,21 +2271,35 @@ static uint32_t cycle_page(uint32_t first, uint32_t count)   /* a button steps t
     return first;
 }
 
-/* (RAIN 43) SELECT held + a white key: the chosen track's length in bars, the 16 white keys 1-16 bars */
+/* (RAIN 43) SELECT held + a white key: the chosen track plays bars 1 to that key's (the 16 white keys: 1-16 bars);
+ * (RAIN 44) a second white key with the first still held: from the one bar to the other (3-11: only those, the
+ * steps outside stay as they are) */
 static uint32_t sel_used;                       /* a key used with SELECT held: its page's own SELECT is not done */
+static uint32_t sel_first;                      /* the bar of the white key held first with SELECT (0: none) */
+static uint32_t white_bar(uint32_t k)           /* key k's place among the white keys, 1..16 (0: a black key) */
+{
+    uint32_t j, n = 0, q = (5u + k) % 12u;
+    if (q == 1u || q == 3u || q == 6u || q == 8u || q == 10u) return 0;
+    for (j = 0; j <= k; j++) { q = (5u + j) % 12u; if (!(q == 1u || q == 3u || q == 6u || q == 8u || q == 10u)) n++; }
+    return n <= 16u ? n : 0u;
+}
 static void sel_len_key(uint32_t k)
 {
-    static char m[24];
-    uint32_t pc = (5u + k) % 12u, n = 0, j, t = seq_trk % NTRK;
+    static char m[28];
+    uint32_t n = white_bar(k), a = 1, b, t = seq_trk % NTRK;
     sel_used = 1;
-    if (pc == 1u || pc == 3u || pc == 6u || pc == 8u || pc == 10u) return;   /* (a black key: none) */
-    for (j = 0; j <= k; j++) { uint32_t q = (5u + j) % 12u; if (!(q == 1u || q == 3u || q == 6u || q == 8u || q == 10u)) n++; }
-    if (!n || n > 16u) return;
-    pat.trk[t].len = (uint16_t)(n * 16u);
+    if (!n) return;
+    b = n;
+    if (sel_first && sel_first != n) { a = sel_first < n ? sel_first : n; b = sel_first < n ? n : sel_first; }
+    else sel_first = n;
+    pat.trk[t].pad[1] = (uint8_t)(a - 1u);
+    pat.trk[t].len = (uint16_t)((b - a + 1u) * 16u);
     if (seq_cur[t] >= pat.trk[t].len) seq_cur[t] = pat.trk[t].len - 1u;
     if (seq_pg[t] >= seq_pages(t)) seq_pg[t] = seq_pages(t) - 1u;
     pat_edited = 1;
-    m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": "); fmt_u(m + slen(m), n); scat(m, n == 1u ? " BAR" : " BARS");
+    m[0] = 0; scat(m, "TRACK "); m[6] = TRK_L[t]; m[7] = 0; scat(m, ": BAR ");
+    fmt_u(m + slen(m), a);
+    if (b != a) { scat(m, "-"); fmt_u(m + slen(m), b); }
     say(m);
 }
 static void keys_in(uint32_t notes_only)
@@ -2319,6 +2333,7 @@ static void keys_in(uint32_t notes_only)
             keys_prev &= ~(1u << k);
             if (key_step[k] == 2u) erase_on[(uint32_t)clampi((int32_t)held_key[k] - pat.trk[seq_trk].transp, 1, 127)] = 0;
             else if (key_step[k] == 1u) seq_key_up(k);
+            else if (key_step[k] == 4u) { if (white_bar(k) == sel_first) sel_first = 0; }   /* (RAIN 44) */
             else if (key_step[k] == 0u) {
                 midi_send(0x80u | MIDI_OUT_CH, held_key[k], 0);
                 note_in(0, held_key[k], 0);
@@ -2761,7 +2776,7 @@ static void app_main(void)
         b = fm1_input_edges(&rel);
         if (set.link) link_buttons(b, rel);     /* (3.4) VIBE LINK ON: the buttons go out as well */
         if (b & ~(1u << BTN_SAVE)) mem_arm = 0;   /* (MEMORY's question: any other button says no) */
-        if (b & (1u << BTN_SEL)) sel_used = 0;  /* (RAIN 43) SELECT acts let go, unless a key set a length with it */
+        if (b & (1u << BTN_SEL)) sel_used = sel_first = 0;  /* (RAIN 43) SELECT acts let go, unless a key set a length with it */
         sel_up = (rel >> BTN_SEL & 1u) && !sel_used;
         {
             uint32_t mh = is_seq_page(page) && seq_view == SV_STEPS && !layer && (fm1_in.buttons >> BTN_SEL & 1u);
