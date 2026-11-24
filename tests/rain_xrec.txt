@@ -1,0 +1,44 @@
+# (RAIN 36) MPE: a note on member 2 bent up 12 semitones while REC records; PLAY again: the bend plays back from its lane
+3000 midi 0xC0 2 0
+3100 btn 7
+3200 btn 7
+3300 btn 7
+3400 enc 2 1
+3420 enc 2 1
+3440 enc 2 1
+3460 enc 2 1
+3500 shot
+3600 btn 7
+3650 enc 3 1
+3655 enc 3 1
+3660 enc 3 1
+3665 enc 3 1
+3670 enc 3 1
+3675 enc 3 1
+3680 enc 3 1
+3685 enc 3 1
+3690 enc 3 1
+3695 enc 3 1
+3700 enc 3 1
+3705 enc 3 1
+3710 enc 3 1
+3715 enc 3 1
+3720 enc 3 1
+3800 shot
+4000 btn 11
+4200 btn 13
+4500 midi 0x91 60 110
+4700 midi 0xE1 0 64
+4800 midi 0xE1 0 66
+4900 midi 0xE1 0 68
+5000 midi 0xE1 0 70
+5100 midi 0xE1 0 72
+5200 midi 0xE1 0 74
+5300 midi 0xE1 0 76
+5400 midi 0xE1 0 78
+5500 midi 0xE1 0 80
+5900 midi 0x81 60 0
+6200 midi 0xE1 0 64
+6400 btn 12
+7000 btn 12
+10000 end

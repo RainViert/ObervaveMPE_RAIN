@@ -3,6 +3,18 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain36 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- REC records the expression too, into the track's lanes, one value per step (the track's step raster): pitch bend,
+  pressure and slide (CC 74) of the MPE note played last (member channels, track A), and pitch bend and channel
+  pressure of the main channel. Playing back, the track's notes take them as an MPE note would: the bend over the
+  MPE range (MPE off: the sound's BEND range), PRESS > and SLIDE > to their destinations, the matrix's PRESS and SLIDE.
+  A lane holds its value until the next one. The four lanes per track are shared with the recorded knobs.
+- CC 1 and CC 74 on the main channel were recorded already (as the knobs they move).
+- Without such lanes the sound is bit for bit as before.
+
 ## 3.5-rain35 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

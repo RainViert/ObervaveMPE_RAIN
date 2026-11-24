@@ -25,6 +25,9 @@ typedef struct { uint16_t len; uint8_t div, swing; int8_t transp; uint8_t mute, 
  * the player sets it on its step. After the steps, behind auto_magic: a pattern saved before has none (cleared at load) */
 #define NLANE 4u
 #define AUTO_NONE 0xFFu
+#define AUTO_XB 0xF0u                           /* (RAIN 36) lanes of expression, not of a knob: pitch bend, */
+#define AUTO_XP 0xF1u                           /* pressure, */
+#define AUTO_XS 0xF2u                           /* slide (CC 74 of an MPE note) */
 #define AUTO_MAGIC 0x4F545541u                  /* "AUTO" */
 typedef struct { uint8_t param, pad[3]; uint8_t v[SEQ_STEPS]; } lane_t;
 typedef struct { uint32_t magic; seqtrk_t trk[NTRK]; step_t st[NTRK][SEQ_STEPS]; uint32_t auto_magic; lane_t lane[NTRK][NLANE]; } pattern_t;
@@ -209,13 +212,21 @@ static void mx_swap_in(void)                    /* (ISR, inside the pattern swap
 static volatile uint32_t ctl_auto_hold[NTRK];   /* main loop: bit l = lane l of track t is being turned */
 static void seq_auto(uint32_t t, uint32_t i)
 {
-    uint32_t l;
+    uint32_t l, on = 0;
     for (l = 0; l < NLANE; l++) {
         const lane_t *a = &pat.lane[t][l];
         uint8_t v = a->v[i % SEQ_STEPS];
+        if (a->param >= AUTO_XB && a->param <= AUTO_XS) {   /* (RAIN 36) expression: held until the next value */
+            uint32_t x = a->param - AUTO_XB;
+            on |= 1u << x;
+            if (v != AUTO_NONE && !(ctl_auto_hold[t] >> l & 1u)) ctl_sx[t % NPART][x] = v;
+            continue;
+        }
         if (a->param == AUTO_NONE || v == AUTO_NONE || (ctl_auto_hold[t] >> l & 1u) || a->param >= NPARAM) continue;
         live_p[t].v[a->param] = v;
     }
+    if (on && !ctl_sx_on[t % NPART]) { ctl_sx[t % NPART][0] = 128; ctl_sx[t % NPART][1] = 0; ctl_sx[t % NPART][2] = 64; }
+    ctl_sx_on[t % NPART] = (uint8_t)on;
 }
 /* MIDI clock lock. The clock's tempo alone lets our beat slide off the master's (its 48-frame rounding, the 0.3 % it
  * must move before it is taken, the jitter): ~0.4 s in 5 minutes. So where the master's quarter (24 clocks from its

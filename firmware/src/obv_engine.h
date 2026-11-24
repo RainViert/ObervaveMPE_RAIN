@@ -102,6 +102,9 @@ typedef struct { uint8_t src, dst; int8_t amt; } mm_slot_t;
 static mm_slot_t ctl_mm[NPART][MM_N];           /* (main loop writes, ISR reads) */
 static volatile uint8_t ctl_mm_used[NPART];     /* a slot of the track is in use */
 static volatile uint8_t ctl_mm_feeds;           /* (RAIN 12) bit 0: a slot sends into DELAY, 1: DELAY 2, 2: REVERB */
+static volatile uint8_t ctl_sx[NPART][3];     /* (RAIN 36) the sequencer's expression per track, from its lanes: bend (128 the
+                                                 * middle), pressure 0..127, slide (CC 74, 64 the middle) */
+static volatile uint8_t ctl_sx_on[NPART];       /* bit 0 bend, 1 pressure, 2 slide: a lane plays it (else none) */
 static volatile uint8_t ctl_at[NPART];          /* channel pressure (aftertouch) per track, for MPE's PRESS without MPE */
 static uint32_t ev_ch;                          /* (ISR) the event being handled: its MPE channel + 1, else 0 */
 static void note_event_ch(uint32_t part, uint32_t on, uint32_t note, uint32_t vel, uint32_t ch)
@@ -722,7 +725,8 @@ static void voice_block(voice_t *v, uint32_t card)
     const part_t *g = vpart(v);
     const uint8_t *pv = g->p->v;
     int32_t lfo, p8, p1, p2, cut, fenv, tmp, velg, trem, vint = g->vint, vt = (vint * VINT_ENV[card % NCARD]) >> 7, lfo_to, a;
-    int32_t mq_p = 0, mq_s = 0, mpw = 0;      /* (RAIN) MPE: pressure, slide (Q15), their pulse width offset */
+    int32_t mq_p = 0, mq_s = 0, mpw = 0;
+    uint32_t xf;                                /* (RAIN 36) bit 0: pressure plays its MPE destination, 1: the slide */      /* (RAIN) MPE: pressure, slide (Q15), their pulse width offset */
     int32_t mx[NMXD];                           /* (RAIN 9) the matrix per destination, Q15 */
     uint32_t ph, glide_k = g->glide_k;
     /* glide */
@@ -754,6 +758,15 @@ static void voice_block(voice_t *v, uint32_t card)
     /* pitch, Q8 semitones */
     p8 = (v->pitch16 >> 8) + g->bend8 + ctl_tune8 + v->det8 + ((VINT_TUNE8[card % NCARD] * vint) >> 7) + ((v->drift * vint) >> 10);
     p8 += (lfo * g->wheel_q * 4) >> 15;         /* the wheel's vibrato */
+    xf = v->mch ? 3u : 0u;
+    if (!v->mch && ctl_sx_on[v->part % NPART]) {   /* (RAIN 36) the track's recorded expression: as an MPE note's */
+        uint32_t pa = v->part % NPART, on = ctl_sx_on[pa];
+        if (on & 1u) p8 += (((int32_t)ctl_sx[pa][0] * 64 - 8192) * (int32_t)(ctl_mpe_range ? ctl_mpe_range : pv[P_BEND]) * 256) >> 13;
+        if (on & 2u) { mq_p = (int32_t)ctl_sx[pa][1] * 258; xf |= 1u; }
+        if (on & 4u) { mq_s = ((int32_t)ctl_sx[pa][2] - 64) * 512; xf |= 2u; }
+        if ((xf & 1u) && ctl_mpe_pdst == MD_VIB) p8 += (((lfo * mq_p) >> 15) * (int32_t)ctl_mpe_pamt) >> 13;
+        if ((xf & 2u) && ctl_mpe_sdst == MD_VIB) p8 += (((lfo * (mq_s < 0 ? -mq_s : mq_s)) >> 15) * (int32_t)ctl_mpe_samt) >> 13;
+    }
     if (v->mch) {                               /* (RAIN) MPE: this note's own bend, pressure and slide */
         uint32_t c = (v->mch - 1u) & 15u;
         v->mbend += (mpe_bend[c] * 16 - v->mbend) >> 2;
@@ -770,7 +783,7 @@ static void voice_block(voice_t *v, uint32_t card)
         int32_t i;
         for (i = 0; i < NMXD; i++) mx[i] = 0;
         if (ctl_mm_used[pa]) {
-            if (!v->mch) mq_p = (int32_t)ctl_at[pa] * 258;   /* (PRESS without MPE: the track's aftertouch) */
+            if (!(xf & 1u)) mq_p = (int32_t)ctl_at[pa] * 258;   /* (PRESS without MPE: the track's aftertouch) */
             for (s = 0; s < MM_N; s++) {
                 const mm_slot_t *m = &ctl_mm[pa][s];
                 int32_t val;
@@ -803,9 +816,9 @@ static void voice_block(voice_t *v, uint32_t card)
     v->inc1 = pitch_inc(p1);
     v->inc2 = pitch_inc(p2);
     tmp = (lfo * g->lfo_pwd);
-    if (v->mch) {                               /* (RAIN) MPE to the pulse width: both oscillators */
-        if (ctl_mpe_pdst == MD_PWM) mpw += mq_p * (int32_t)ctl_mpe_pamt;   /* (as the LFO's PWM at full depth) */
-        if (ctl_mpe_sdst == MD_PWM) mpw += mq_s * (int32_t)ctl_mpe_samt;
+    if (xf) {                                   /* (RAIN) MPE to the pulse width: both oscillators */
+        if ((xf & 1u) && ctl_mpe_pdst == MD_PWM) mpw += mq_p * (int32_t)ctl_mpe_pamt;   /* (as the LFO's PWM at full depth) */
+        if ((xf & 2u) && ctl_mpe_sdst == MD_PWM) mpw += mq_s * (int32_t)ctl_mpe_samt;
     }
     mpw += mx[MXD_PW] * 127;                    /* (RAIN 9: 100 % = the LFO's PWM at full depth) */
     v->pw1 = pw_mod(g->pw1_base, (pv[P_LFO_PWM_TO] != TO_O2 ? tmp : 0) + mpw);
@@ -815,9 +828,9 @@ static void voice_block(voice_t *v, uint32_t card)
         + ((int32_t)v->note - 60) * g->keytrk * 2 + (((int32_t)v->vel - 64) * g->velflt >> 1)
         + ((lfo * g->lfo_fd * 97) >> 15) + ((lfo * g->wheel_q * 48) >> 15) + ((VINT_CUT8[card % NCARD] * vint) >> 7)
         + ((v->drift * vint) >> 7);             /* the vintage walk on the cutoff too: ~1/4 semitone at the default */
-    if (v->mch) {                               /* (RAIN) MPE to the cutoff: up to 4 octaves, pressure up, slide both ways */
-        if (ctl_mpe_pdst == MD_CUT) cut += (mq_p * (int32_t)ctl_mpe_pamt * 96) >> 15;
-        if (ctl_mpe_sdst == MD_CUT) cut += (mq_s * (int32_t)ctl_mpe_samt * 96) >> 15;
+    if (xf) {                                   /* (RAIN) MPE to the cutoff: up to 4 octaves, pressure up, slide both ways */
+        if ((xf & 1u) && ctl_mpe_pdst == MD_CUT) cut += (mq_p * (int32_t)ctl_mpe_pamt * 96) >> 15;
+        if ((xf & 2u) && ctl_mpe_sdst == MD_CUT) cut += (mq_s * (int32_t)ctl_mpe_samt * 96) >> 15;
     }
     cut += (mx[MXD_CUT] * 3) >> 3;              /* (RAIN 9) 100 %: 4 octaves */
     if (mx[MXD_RESO]) {                         /* (RAIN 9) the resonance per voice: 100 % = its whole range */
@@ -841,9 +854,9 @@ static void voice_block(voice_t *v, uint32_t card)
     trem = 32767 - (((32767 - lfo) * g->lfo_ad) >> 8);
     v->amp0 = v->amp1;
     a = (int32_t)(((int64_t)(v->ae.level >> 9) * velg >> 15) * trem >> 15);
-    if (v->mch && ctl_mpe_pdst == MD_AMP)       /* (RAIN) MPE: the pressure plays the level (at full AMOUNT: none, no sound) */
+    if ((xf & 1u) && ctl_mpe_pdst == MD_AMP)       /* (RAIN) MPE: the pressure plays the level (at full AMOUNT: none, no sound) */
         a = (int32_t)(((int64_t)a * (32767 - (((32767 - mq_p) * (int32_t)ctl_mpe_pamt) >> 7))) >> 15);
-    if (v->mch && ctl_mpe_sdst == MD_AMP) {     /* (RAIN) the slide: louder up, softer down */
+    if ((xf & 2u) && ctl_mpe_sdst == MD_AMP) {     /* (RAIN) the slide: louder up, softer down */
         int32_t gs = 32767 + ((mq_s * (int32_t)ctl_mpe_samt) >> 8);
         a = (int32_t)(((int64_t)a * (gs < 0 ? 0 : gs > 49151 ? 49151 : gs)) >> 15);
     }
