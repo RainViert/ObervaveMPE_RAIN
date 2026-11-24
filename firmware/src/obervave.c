@@ -2473,7 +2473,7 @@ static void app_main(void)
                 t[n++] = ' '; t[n++] = 'E'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
                 v = fm1_boot.p3_rst;
                 t[n++] = ' '; t[n++] = 'R'; t[n++] = HX[v >> 4 & 15u]; t[n++] = HX[v & 15u];
-                t[n++] = ' '; t[n++] = 'S'; t[n++] = (char)('0' + c1_last_stage % 10u);   /* (RAIN 25) how far it got */
+                t[n++] = ' '; t[n++] = 'S'; t[n++] = (char)('0' + c1_last_stage / 10u % 10u); t[n++] = (char)('0' + c1_last_stage % 10u);   /* (RAIN 25) how far it got */
                 t[n++] = ' '; t[n++] = 'J';
                 for (q = 0; q < 6u; q++) t[n++] = HX[c1_last_jobs >> (20u - 4u * q) & 15u];
                 t[n] = 0;
