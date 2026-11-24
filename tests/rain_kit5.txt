@@ -1,0 +1,27 @@
+# (RAIN 30) SOUND KIT (program 76) with five programs: the defaults, then the snare's place set to 74 RIM (D held + PRESETS)
+3000 midi 0xC0 75 0
+3300 midi 0x90 36 110
+3340 midi 0x80 36 0
+3900 midi 0x90 38 110
+3940 midi 0x80 38 0
+4500 midi 0x90 39 110
+4540 midi 0x80 39 0
+5100 midi 0x90 42 110
+5140 midi 0x80 42 0
+5700 midi 0x90 46 110
+5740 midi 0x80 46 0
+6300 midi 0x90 40 110
+6340 midi 0x80 40 0
+6900 midi 0x90 47 110
+6940 midi 0x80 47 0
+7500 midi 0x90 37 110
+7540 midi 0x80 37 0
+8100 midi 0x90 44 110
+8140 midi 0x80 44 0
+8700 keys 0x200
+8900 enc 6 8
+9000 shot
+9600 keys 0
+9900 midi 0x90 38 110
+9940 midi 0x80 38 0
+10700 end

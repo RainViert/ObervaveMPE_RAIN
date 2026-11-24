@@ -297,12 +297,14 @@ static void prog_get(uint32_t n, patch_t *p)    /* program n: the user's, else t
 {
     n %= NPROG;
     if (psect[n / PS_N].used[n % PS_N]) *p = psect[n / PS_N].p[n % PS_N];
-    else patch_from_factory(p, n < NFACT ? &FACTORY[n] : n < NFACT + NVIBE ? &FACT_VIBE[n - NFACT] : n == NFACT + NVIBE ? &FACT_KIT : &FACT_INIT);   /* (RAIN 28) 71 DRUM KIT */
+    else patch_from_factory(p, n < NFACT ? &FACTORY[n] : n < NFACT + NVIBE ? &FACT_VIBE[n - NFACT] : n == NFACT + NVIBE ? &FACT_KIT : n - (NFACT + NVIBE + 1u) < NDRUMS ? &FACT_DRUMS[n - (NFACT + NVIBE + 1u)] : n == NFACT + NVIBE + 1u + NDRUMS ? &FACT_SKIT : &FACT_INIT);   /* (RAIN 28/30) 71 DRUM KIT, 72-75 drums, 76 SOUND KIT */
 }
 
+static uint32_t prog_rev;                       /* (RAIN 30) counts the programs' saves: the kit reloads its drums */
 static void prog_put(uint32_t n, const patch_t *p)   /* program n is the user's now; saved when quiet */
 {
     n %= NPROG;
+    prog_rev++;
     psect[n / PS_N].p[n % PS_N] = *p;
     psect[n / PS_N].used[n % PS_N] = 1;
     ps_dirty |= 1u << (n / PS_N);
@@ -345,9 +347,45 @@ static void trk_load(uint32_t t, uint32_t n)    /* track t: program n */
 
 /* the panel's notes (keys, pads, MIDI) go to the sound the panel is on; a release goes where its note began */
 static uint8_t note_part[128];
+static uint32_t kit_prog(const patch_t *p, uint32_t k)   /* (RAIN 30) a DRUM KIT's place k: its program */
+{
+    uint32_t b = p->v[KIT_AT + k];
+    return b >= 100u && b < 100u + NPROG ? b - 100u : KIT_DEF_PROG[k];
+}
+/* (RAIN 30) the kit's five programs into the engine (kit_base): the panel's track if it is a kit, else the first kit
+ * track; again when a place changes or a program is saved */
+static void kit_sync(void)
+{
+    static uint32_t t_last, rev_had = 0xFFFFFFFFu;
+    static uint8_t had[NKS] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    uint32_t t, k, kt = NTRK;
+    if ((uint32_t)(fm1_ms - t_last) < 50u) return;
+    t_last = fm1_ms;
+    if (live_p[seq_trk % NTRK].v[P_MODE] == M_SKIT) kt = seq_trk % NTRK;
+    else for (t = 0; t < NTRK; t++) if (live_p[t].v[P_MODE] == M_SKIT) { kt = t; break; }
+    if (kt == NTRK) return;
+    for (k = 0; k < NKS; k++) {
+        uint32_t n = kit_prog(&live_p[kt], k);
+        if (n != had[k] || prog_rev != rev_had) {
+            patch_t tmp;
+            prog_get(n, &tmp);
+            if (tmp.v[P_MODE] >= M_KIT) tmp.v[P_MODE] = M_POLY;   /* (a kit as a drum: its own sound) */
+            kit_busy = 1;
+            __asm__ volatile("" ::: "memory");
+            kit_base[NKP + k] = tmp;
+            __asm__ volatile("" ::: "memory");
+            kit_busy = 0;
+            had[k] = (uint8_t)n;
+        }
+    }
+    rev_had = prog_rev;
+}
+static uint8_t kit_key = 0xFF, kit_keys;       /* (RAIN 30) the key held last (a DRUM KIT: PRESETS picks its drum) */
 static void play_note(uint32_t on, uint32_t note, uint32_t vel)
 {
     note &= 127u;
+    if (on) { kit_key = (uint8_t)note; kit_keys++; }
+    else if (kit_keys && !--kit_keys) kit_key = 0xFF;
     if (on) note_part[note] = (uint8_t)(seq_trk % NTRK);
     note_event_p(note_part[note], on, note, vel);
 }
@@ -901,7 +939,7 @@ static void param_value(char *s, uint32_t p, uint32_t v)   /* <= 7 characters */
     case K_ONOFF: scat(s, v ? "ON" : "OFF"); break;
     case K_WAVE: scat(s, WAVE_NAME[v & 3u]); break;
     case K_FTYPE: scat(s, FTYPE_NAME[v % NFTYPE]); break;
-    case K_MODE: scat(s, MODE_NAME[v % 5u]); break;
+    case K_MODE: scat(s, MODE_NAME[v % 6u]); break;
     case K_LSHAPE: scat(s, LSHAPE_NAME[v % 6u]); break;
     case K_LPHASE: scat(s, LPHASE_NAME[v % 3u]); break;
     case K_TO: scat(s, TO_NAME[v % 3u]); break;
@@ -940,15 +978,15 @@ static void draw_header(void)
     }
     {   /* short words; mode, filter, HOLD, SEQ and REC always (at most 23 characters: MONO NOTCH HOLD SEQ REC); then,
          * as far as they fit, ARP, FX */
-        static const char *const MODE_S[5] = {"POLY", "DUAL", "UNI", "MONO", "KIT"};
+        static const char *const MODE_S[6] = {"POLY", "DUAL", "UNI", "MONO", "KIT", "SKIT"};
         static const char *const FT_S[NFTYPE] = {"LP12", "HP12", "BP12", "NOTCH", "LP24", "SEM"};
         const uint8_t *pv = ed_patch(0)->v;     /* (the mode and filter of the sound the panel is on) */
         uint32_t arp = pv[P_ARP_MODE] != 0, fx = live.v[P_CHO_MIX] || live.v[P_DLY_MIX] || live.v[P_REV_MIX];
-        uint32_t n = slen(MODE_S[pv[P_MODE] % 5u]) + 1u + slen(FT_S[pv[P_FTYPE] % NFTYPE])
+        uint32_t n = slen(MODE_S[pv[P_MODE] % 6u]) + 1u + slen(FT_S[pv[P_FTYPE] % NFTYPE])
                    + ((hold >> seq_trk & 1u) ? 5u : 0u) + (ctl_seq_run ? 4u : 0u) + (rec ? 4u : 0u);
         if (arp && n + 4u <= 23u) n += 4u; else arp = 0;
         if (fx && n + 3u <= 23u) n += 3u; else fx = 0;
-        scat(tags, MODE_S[pv[P_MODE] % 5u]);
+        scat(tags, MODE_S[pv[P_MODE] % 6u]);
         scat(tags, " ");
         scat(tags, FT_S[pv[P_FTYPE] % NFTYPE]);
         if (arp) scat(tags, " ARP");
@@ -2480,6 +2518,7 @@ static void app_main(void)
 #endif
             if (set.cores2) { set.cores2 = 0; set_dirty = 1; set_t = fm1_ms; dirty_page = 1; say(m); }
         }
+        kit_sync();                             /* (RAIN 30) */
         if (cpu1_bad) c1_why = cpu1_bad;        /* (RAIN 19) kept for the CHANNELS page; handled once: SELECT can try
                                                  * again at the next power-on */
         cpu1_bad = 0;
@@ -2682,6 +2721,24 @@ static void app_main(void)
         if ((e = link_enc_take(ENC_PRESETS)) != 0 && is_seq_page(page) && seq_view == SV_SLOTS && !layer) {   /* MEMORY: PRESETS = the slot */
             mem_turn(e, 0);
             dirty_page = dirty_steps = 1;
+        } else if (e && live_p[seq_trk % NTRK].v[P_MODE] == M_SKIT && kit_key != 0xFF && KIT_PC2SLOT[kit_key % 12u] < NKS) {
+            /* (RAIN 30) a SOUND KIT, a drum's key held: PRESETS = the program on that place (not a kit) */
+            patch_t *kp = &live_p[seq_trk % NTRK], tmp;
+            uint32_t k = KIT_PC2SLOT[kit_key % 12u], n = kit_prog(kp, k), i;
+            static char m[32];
+            static const char *const KN_[NKS] = {"KICK", "SNARE", "CLAP", "CL HAT", "OP HAT"};
+            n = (uint32_t)((int32_t)n + e + (int32_t)NPROG * 4) % NPROG;
+            { patch_t q; prog_get(n, &q); if (q.v[P_MODE] >= M_KIT) n = (uint32_t)((int32_t)n + (e > 0 ? 1 : -1) + (int32_t)NPROG) % NPROG; }   /* (no kit in a kit) */
+            kp->v[KIT_AT + k] = (uint8_t)(n + 100u);
+            trk_edited[seq_trk % NTRK] = 1;
+            prog_get(n, &tmp);
+            m[0] = 0; scat(m, KN_[k]); scat(m, ": ");
+            { char d[3] = {(char)('0' + (n + 1u) / 10u), (char)('0' + (n + 1u) % 10u), 0}; scat(m, d); }
+            scat(m, " ");
+            i = slen(m);
+            { uint32_t j; for (j = 0; j < PATCH_NAME && tmp.v[NPARAM + j] > ' '; j++) m[i++] = (char)tmp.v[NPARAM + j]; m[i] = 0; }
+            say(m);
+            dirty_hdr = dirty_page = 1;
         } else if (e) {                         /* the chosen track's sound */
             trk_load(seq_trk, (uint32_t)((int32_t)trk_prog[seq_trk % NTRK] + e + (int32_t)NPROG * 4) % NPROG);
             dirty_hdr = dirty_page = dirty_tags = dirty_steps = 1;
@@ -2964,7 +3021,9 @@ static void app_main(void)
             else
 #endif
             if (seq_shown() || rec || rec_down || layer) draw_hints();   /* the sequencer's hints instead of the voice LEDs */
-            else if (page == PG_MPE2 && c1_why) {   /* (RAIN 22) why the second core failed, instead of the voice LEDs */
+            else if (toast && fm1_ms - toast_t < 1500u) {   /* (RAIN 30) a message on any page, over the voice LEDs */
+                if (leds_q != (0xB0000000u ^ toast_t)) { leds_q = 0xB0000000u ^ toast_t; ui_hints(toast, "", C_AMBER); }
+            } else if (page == PG_MPE2 && c1_why) {   /* (RAIN 22) why the second core failed, instead of the voice LEDs */
                 if (leds_q != 0xC1C1C1C1u) { leds_q = 0xC1C1C1C1u; ui_hints(c1_text, c1_text2, C_RED); }
             } else if (q != leds_q) { leds_q = q; draw_leds(); }
             if (page == PG_GLOBAL && fm1_ms - t_page >= 250u) dirty_page = 1;

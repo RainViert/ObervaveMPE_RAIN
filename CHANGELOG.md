@@ -3,6 +3,20 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain30 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- **SOUND KIT** (program 76, MODE SNDKIT): five places, each any program of 1-99, edited and saved like every sound:
+  C (and B) kick, D (and E) snare, D# (and C#) clap, F# (and G#) closed hat, A# open hat, in every octave (General
+  MIDI's keys). A drum plays at the key's note (tune it by the octave), as a one-shot; the closed hat cuts the open
+  one. **Hold a drum's key and turn PRESETS** to put another program on that place ("SNARE: 74 RIM"); SAVE keeps the
+  kit with its places. A program saved meanwhile is heard in the kit at once. The track's PERFORM knobs move all five,
+  as on the DRUM KIT. Defaults: 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT.
+- New drum programs to build kits from: 72 OPEN HAT, 73 TOM, 74 RIM, 75 CYMBAL (77-99 stay INIT).
+- The DRUM KIT (71) stays as it was: ten synthesized drums over the octave.
+- Messages ("SNARE: 74 RIM", "2 CORES FROM THE NEXT POWER-ON" ...) show on every page, over the voice LEDs.
+
 ## 3.5-rain29 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
