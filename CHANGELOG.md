@@ -3,6 +3,13 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain42 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- A fifth note onto a step (four at most): the first one goes and the new one is kept (it was left out). The same for
+  an MPE pattern's expression per note.
+
 ## 3.5-rain41 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
