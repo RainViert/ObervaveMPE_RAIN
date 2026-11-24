@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain29 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- The DRUM KIT follows its track's knobs: CUTOFF, RESO, ENV AMT, RELEASE (the decay too: the drums are one-shots) and
+  DRIVE move every drum by how far they are from their defaults, so each keeps its own character (CUTOFF up: a
+  brighter kick, thinner hats; RELEASE down: a tighter kit). The PERFORM page and the FILTER / AMP ENV pages, the MIDI
+  CCs (74, 71, 72) and the matrix's knob lanes work on it.
+
 ## 3.5-rain28 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
