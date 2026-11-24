@@ -194,10 +194,14 @@ static const uint8_t PF_WURLI[] = {P_O1_WAVE, W_PLS, P_O1_PW, 38, P_O2_WAVE, W_P
     P_AA, 1, P_AD, 94, P_AS, 30, P_AR, 62, P_DRIVE, 35, P_VEL_FLT, 100, P_VEL_AMP, 90, P_LFO_SHAPE, L_TRI, P_LFO_RATE, 96,
     P_LFO_PHASE, LP_FREE, P_LFO_AMP, 30, P_VINTAGE, 30, P_SPREAD, 60, P_REV_SIZE, 75, P_REV_MIX, 20, X};
 
-/* (RAIN 28) the drum kit: program 71, MODE KIT. Each key plays its own drum at its own fixed pitch, in every octave
- * (General MIDI's order where it fits): C kick, C# rim, D snare, D# clap, E snare, F low tom, F# closed hat, G mid
- * tom, G# closed hat, A high tom, A# open hat, B cymbal. The closed hats cut the open one. One-shots: a drum sounds out
- * whatever the key does; the velocity sets its level (and brightness where the sound has it) */
+/* (RAIN 28) the DRUM KIT: program 71, MODE KIT. Each key plays its own synthesized drum at its own fixed pitch, in
+ * every octave (General MIDI's order where it fits): C kick, C# rim, D snare, D# clap, E snare, F low tom, F# closed
+ * hat, G mid tom, G# closed hat, A high tom, A# open hat, B cymbal. The closed hats cut the open one. One-shots.
+ * (RAIN 30) the SOUND KIT: program 76, MODE SNDKIT. Five places, each a program (any of 1-99, edited and saved as any
+ * sound), on the keys General MIDI has for them, in every octave: C (and B) kick, D (and E) snare, D# (and C#) clap,
+ * F# (and G#) closed hat, A# open hat. A drum plays at the key's note, a one-shot (its attack and decay, then it lets
+ * go); the closed hat cuts the open one. The places are in the kit's spare patch bytes (KIT_AT): program + 100, else
+ * the defaults: 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT. Programs 72-75 are drums for it */
 static const uint8_t PF_KIT_RIM[] = {P_O1_WAVE, W_OFF, P_O2_WAVE, W_PLS, P_O2_PW, 50, P_O2_LVL, 127, P_NOISE, 70, P_FTYPE, F_BP12,
     P_CUTOFF, 104, P_RESO, 45, P_FENV_AMT, 70, P_KEYTRK, 64, P_FA, 0, P_FD, 30, P_FS, 0, P_FR, 30, P_AA, 0, P_AD, 38,
     P_AS, 0, P_AR, 38, P_DRIVE, 90, P_VEL_AMP, 80, P_VINTAGE, 0, P_SPREAD, 0, P_VOLUME, 127, X};
@@ -215,14 +219,25 @@ enum { KP_KICK, KP_RIM, KP_SNARE, KP_CLAP, KP_LTOM, KP_CHAT, KP_MTOM, KP_HTOM, K
 static const factory_t KIT_PC[NKP] = {{"KICK", PF_KICK}, {"RIM", PF_KIT_RIM}, {"SNARE", PF_SNARE}, {"CLAP", PF_CLAP},
     {"LOW TOM", PF_KIT_TOM}, {"CL HAT", PF_HIHAT}, {"MID TOM", PF_KIT_TOM}, {"HI TOM", PF_KIT_TOM}, {"OP HAT", PF_KIT_OHAT},
     {"CYMBAL", PF_KIT_CYM}};
-/* per pitch class: the piece and the fixed note it sounds at (the kick low, the snare at C3, the toms ~100 / 130 / 175 Hz) */
 static const uint8_t KIT_KEY_PC[12] = {KP_KICK, KP_RIM, KP_SNARE, KP_CLAP, KP_SNARE, KP_LTOM, KP_CHAT, KP_MTOM, KP_CHAT,
                                        KP_HTOM, KP_OHAT, KP_CYM};
-static const uint8_t KIT_NOTE[NKP] = {36, 72, 48, 60, 55, 72, 60, 65, 72, 72};
+static const uint8_t KIT_NOTE[NKP] = {36, 72, 48, 60, 55, 72, 60, 65, 72, 72};   /* the kick low, the snare at C3, toms
+                                                                                  * ~100 / 130 / 175 Hz */
+#define NKS 5u                                  /* the SOUND KIT's places */
+#define NKT (NKP + NKS)                         /* the engine's drum sounds: the DRUM KIT's, then the SOUND KIT's */
+enum { KS_KICK, KS_SNARE, KS_CLAP, KS_CHAT, KS_OHAT };
+static const uint8_t KIT_PC2SLOT[12] = {KS_KICK, KS_CLAP, KS_SNARE, KS_CLAP, KS_SNARE, 0xFF, KS_CHAT, 0xFF, KS_CHAT, 0xFF,
+                                        KS_OHAT, KS_KICK};
+static const uint8_t KIT_DEF_PROG[NKS] = {64, 65, 67, 66, 71};   /* 65 KICK, 66 SNARE, 68 CLAP, 67 HIHAT, 72 OPEN HAT */
+static const factory_t FACT_DRUMS[4] = {{"OPEN HAT", PF_KIT_OHAT}, {"TOM", PF_KIT_TOM}, {"RIM", PF_KIT_RIM},
+                                        {"CYMBAL", PF_KIT_CYM}};   /* 72-75 */
+#define NDRUMS 4u
 static const uint8_t PF_DRUM_KIT[] = {P_MODE, M_KIT, P_SPREAD, 0, P_REV_SIZE, 60, P_REV_MIX, 12, X};
 static const factory_t FACT_KIT = {"DRUM KIT", PF_DRUM_KIT};
+static const uint8_t PF_SOUND_KIT[] = {P_MODE, M_SKIT, P_SPREAD, 0, P_REV_SIZE, 60, P_REV_MIX, 12, X};
+static const factory_t FACT_SKIT = {"SOUND KIT", PF_SOUND_KIT};   /* 76 */
 #undef X
-static const factory_t FACT_INIT = {"INIT", PF_INIT};   /* 72-99 */
+static const factory_t FACT_INIT = {"INIT", PF_INIT};   /* 77-99 */
 static const factory_t FACT_VIBE[] = {                  /* 65-70 (VIBE): drums and keys */
     {"KICK", PF_KICK}, {"SNARE", PF_SNARE}, {"HIHAT", PF_HIHAT}, {"CLAP", PF_CLAP}, {"E-PIANO", PF_EPIANO}, {"WURLI", PF_WURLI}};
 #define NVIBE (sizeof FACT_VIBE / sizeof FACT_VIBE[0])

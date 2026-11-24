@@ -155,13 +155,14 @@ typedef struct {
 } part_t;
 static part_t pt[NPART] = {{&live_p[0], 0, 0, 0, 0, 60 << 16}, {&live_p[1], 0, 0, 0, 0, 60 << 16},
                             {&live_p[2], 0, 0, 0, 0, 60 << 16}, {&live_p[3], 0, 0, 0, 0, 60 << 16}};
-/* (RAIN 28) the drum kit's pieces (obv_patches.h KIT_PC): a sound each, in voices whose kp is set. Their numbers are
- * worked out only in a block where one of them sounds */
-static patch_t kit_p[NKP], kit_base[NKP];      /* (kit_base: the pieces as made; kit_p: + the track's knobs) */
+/* (RAIN 28/30) the drum kit's five places: a program each (the main loop loads them: kit_sync), in voices whose kp
+ * is set. Their numbers are worked out only in a block where one of them sounds */
+static patch_t kit_p[NKT], kit_base[NKT];      /* (kit_base: the programs as saved; kit_p: + the kit track's knobs) */
+static volatile uint8_t kit_busy;               /* the main loop is copying kit_base: this block keeps kit_p as it was */
 static uint8_t kit_trk;                         /* the track whose kit played last: its knobs move the drums */
-static part_t kpt[NKP];
+static part_t kpt[NKT];
 static uint8_t start_kp;                        /* voice_start: the piece the next voice plays (+ 1), 0 the track's sound */
-static const part_t *vpart(const voice_t *v) { return v->kp ? &kpt[(v->kp - 1u) % NKP] : &pt[v->part]; }
+static const part_t *vpart(const voice_t *v) { return v->kp ? &kpt[(v->kp - 1u) % NKT] : &pt[v->part]; }
 
 static void held_remove(uint32_t p, uint32_t note)
 {
@@ -186,7 +187,7 @@ static void voice_pan(voice_t *v, int32_t pan)   /* -64..64 */
 
 static void voice_start(voice_t *v, uint32_t part, uint32_t note, uint32_t vel, int32_t det8, int32_t pan)
 {
-    const part_t *g0 = start_kp ? &kpt[(start_kp - 1u) % NKP] : &pt[part];
+    const part_t *g0 = start_kp ? &kpt[(start_kp - 1u) % NKT] : &pt[part];
     const uint8_t *pv = g0->p->v;
     v->kp = start_kp;
     v->part = (uint8_t)part;
@@ -276,18 +277,26 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
     const uint8_t *pv = pt[part].p->v;
     uint32_t mode = pv[P_MODE], n, i, legato = 0;
     int32_t det = (pv[P_UNI_DET] * pv[P_UNI_DET]) >> 6, spread = pv[P_SPREAD];
-    if (mode == M_KIT) {                        /* (RAIN 28) the key's drum at its own pitch, a one-shot */
-        uint32_t k = KIT_KEY_PC[note % 12u], v;
-        if (k == KP_CHAT)                       /* a closed hat cuts the open one */
+    if (mode == M_KIT || mode == M_SKIT) {      /* (RAIN 28/30) the key's drum, a one-shot: KIT the synthesized one at its
+                                                 * own pitch, SNDKIT the place's program at the key's note */
+        uint32_t k, chat, ohat, at, v;
+        if (mode == M_KIT) { k = KIT_KEY_PC[note % 12u]; chat = KP_CHAT; ohat = KP_OHAT; at = KIT_NOTE[k]; }
+        else {
+            k = KIT_PC2SLOT[note % 12u];
+            if (k >= NKS) return;               /* (a key with no drum) */
+            chat = KS_CHAT; ohat = KS_OHAT; at = note; k += NKP;
+            chat += NKP; ohat += NKP;
+        }
+        if (k == chat)                          /* a closed hat cuts the open one */
             for (v = 0; v < NV; v++)
-                if (vc[v].kp == KP_OHAT + 1u && vc[v].part == part) vc[v].gate = 0;
+                if (vc[v].kp == ohat + 1u && vc[v].part == part) vc[v].gate = 0;
         kpt[k].lfo_ph = 0;                      /* (the clap's flutter starts with the hit) */
         kit_trk = (uint8_t)part;
         v = voice_alloc(part);
         start_kp = (uint8_t)(k + 1u);
-        voice_start(&vc[v], part, KIT_NOTE[k], vel, 0, 0);
+        voice_start(&vc[v], part, at, vel, 0, 0);
         start_kp = 0;
-        vc[v].note = (uint8_t)note;             /* (the key, for its light; the pitch stays the drum's) */
+        vc[v].note = (uint8_t)note;             /* (the key, for its light) */
         vc[v].grp = 0;
         return;
     }
@@ -348,7 +357,7 @@ static void voice_release(uint32_t part, uint32_t note, uint32_t from_arp)
 {
     const uint8_t *pv = pt[part].p->v;
     uint32_t v, mode = pv[P_MODE];
-    if (mode == M_KIT) return;                  /* (RAIN 28) a drum sounds out: the key's release does not cut it */
+    if (mode >= M_KIT) return;                  /* (RAIN 28) a drum sounds out: the key's release does not cut it */
     if ((mode == M_MONO || mode == M_UNISON) && !from_arp && nheld[part] && pv[P_ARP_MODE] == A_OFF) {
         uint32_t n = grp_n[part], i;
         voice_t *v0 = &vc[grp_v[part][0]];
@@ -947,8 +956,8 @@ static void engine_audio(int32_t *out, uint32_t n)
             uint32_t kl = 0;
             for (v = 0; v < NV; v++)
                 if (vc[v].kp && (vc[v].gate || vc[v].ae.stage != E_IDLE)) {
-                    if (vc[v].gate && vc[v].ae.stage == E_SUS) vc[v].gate = 0;
-                    kl |= 1u << ((vc[v].kp - 1u) % NKP);
+                    if (vc[v].gate && vc[v].ae.stage >= E_SUS) vc[v].gate = 0;   /* (whatever its program's sustain) */
+                    kl |= 1u << ((vc[v].kp - 1u) % NKT);
                 }
             if (kl) {   /* the kit track's CUTOFF, RESO, ENV AMT, RELEASE (= the decay too: one-shots), DRIVE move every drum
                          * by how far they are from their defaults: each keeps its own character */
@@ -960,10 +969,13 @@ static void engine_audio(int32_t *out, uint32_t n)
                     uint32_t q = j == 4u ? P_AR : KN[j];   /* (RELEASE moves the decay as well) */
                     dl[j] = (int32_t)tv[q] - (int32_t)PDEF[q].def;
                 }
-                for (p = 0; p < NKP; p++) {
+                for (p = 0; p < NKT; p++) {
                     if (!(kl >> p & 1u)) continue;
-                    for (j = 0; j < 6u; j++)
-                        kit_p[p].v[KN[j]] = (uint8_t)clampi((int32_t)kit_base[p].v[KN[j]] + dl[j], 0, PDEF[KN[j]].max);
+                    if (!kit_busy) {
+                        kit_p[p] = kit_base[p];
+                        for (j = 0; j < 6u; j++)
+                            kit_p[p].v[KN[j]] = (uint8_t)clampi((int32_t)kit_base[p].v[KN[j]] + dl[j], 0, PDEF[KN[j]].max);
+                    }
                     lfo_tick(&kpt[p]);
                     block_globals(&kpt[p]);
                 }
@@ -1093,8 +1105,10 @@ static void engine_init(void)
         pt[v].lfo_rnd_a = xorshift(&rnd_state);
         pt[v].lfo_rnd_b = xorshift(&rnd_state);
     }
-    for (v = 0; v < NKP; v++) {                 /* (RAIN 28) the drum pieces, ready (their CUTOFF / RESO not gliding in) */
-        patch_from_factory(&kit_base[v], &KIT_PC[v]);
+    for (v = 0; v < NKT; v++) {                 /* (RAIN 28/30) the drums, ready (their CUTOFF / RESO not gliding in): the
+                                                 * DRUM KIT's made here, the SOUND KIT's loaded by the main loop (kit_sync) */
+        if (v < NKP) patch_from_factory(&kit_base[v], &KIT_PC[v]);
+        else patch_defaults(&kit_base[v]);
         kit_p[v] = kit_base[v];
         kpt[v].p = &kit_p[v];
         kpt[v].last_pitch16 = 60 << 16;
