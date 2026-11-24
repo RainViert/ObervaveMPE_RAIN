@@ -57,6 +57,8 @@ static void host_c1_bad(void) { const char *e = getenv("OBV_C1BAD"); cpu1_bad = 
 #include "fm1_sys.h"
 #include "fm1_irq.h"
 #include "fm1_guard.h"
+#define FM1_C1_STEP(n) do { c1_diag_step(n); } while (0)   /* (RAIN 26) waypoints in the start (the diagnosis) */
+static void c1_diag_step(uint32_t n);
 #include "fm1_cpu1.h"                          /* (RAIN 17) the second core: Melodee's, through X0X, SLOOP, Clipper */
 #if BOARD_SMK37
 #include "smk_input.h"                          /* keys with velocity, buttons, 8 encoders, LEDs, pads, faders, wheels */
@@ -526,6 +528,7 @@ struct { uint32_t magic, stage, jobs, spare; } c1_diag __attribute__((section(".
 static uint32_t c1_last_stage, c1_last_jobs;    /* the record as this boot found it (the CHANNELS page) */
 __attribute__((section(".c1_text.t"))) static void c1_ramtest(uint32_t a) { c1_test_out = a ^ 0x5A5A5A5Au; }
 static void c1_stage(uint32_t st) { c1_diag.magic = C1D_MAGIC; c1_diag.stage = st; fm1_cpu1_sync(); }
+static void c1_diag_step(uint32_t n) { c1_stage(n); }
 static void cpu1_boot(void)
 {
     uint32_t p3 = fm1_boot.p3_rst;
@@ -636,6 +639,10 @@ void fm1_cstart(void)
 #else
     flash_ok = FL_JEDEC_OK(FL_FAR(fl_jedec_ram)());
 #endif
+    if (!(boot_keys & 1u << FM1_BTN_OCT_UP) && obv_cores_wanted())
+        cpu1_boot();                            /* (RAIN 17) before the audio and the timers (started later, X0X's never
+                                                 * reached its entry). (RAIN 18) only when the settings ask for it (off by
+                                                 * default) and OCT+ is not held: one core else, as rain16 */
     ota_boot_cleanup();
     lcd_init();
     lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -645,8 +652,8 @@ void fm1_cstart(void)
     smk_trim_read();                            /* (after fm1_input_init: it sets the defaults first) */
     smk_owner_check();
 #endif
-    if (!(boot_keys & 1u << FM1_BTN_OCT_UP) && obv_cores_wanted())
-        cpu1_boot();                            /* (RAIN 17) before the audio and the timers (started later, X0X's never
+    /* (RAIN 26) cpu1_boot moved up: before the screen, the inputs and the ADC (the diagnosis: does what runs before
+     * it matter) */                            /* (RAIN 17) before the audio and the timers (started later, X0X's never
                                                  * reached its entry). (RAIN 18) only when the settings ask for it (off by
                                                  * default) and OCT+ is not held: one core else, as rain16 */
     fm1_audio_init(abuf, HALF_WORDS, isr_alnk0, 3);   /* (abuf is zero: .bss) */

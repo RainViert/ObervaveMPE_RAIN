@@ -40,7 +40,10 @@
 #define FM1_C1_CLK (*(volatile uint32_t *)0x00010008u)
 #define FM1_C1_T4 (*(volatile uint32_t *)0x10804u)       /* TIMER4, 24 MHz */
 #define FM1_C1_SYNC() __asm__ volatile("csync" ::: "memory")
-static void fm1_cpu1_sync(void) { FM1_C1_SYNC(); }   /* (RAIN 25) for the app: its writes seen by the other core */
+static void fm1_cpu1_sync(void) { FM1_C1_SYNC(); }
+#ifndef FM1_C1_STEP
+#define FM1_C1_STEP(n) ((void)0)                 /* (RAIN 26) the app's waypoint inside the start, kept through a reset */
+#endif   /* (RAIN 25) for the app: its writes seen by the other core */
 
 extern void fm1_c1_entry(void);
 extern uint32_t _c1_ustack[], _c1_sstack_top[];
@@ -142,16 +145,23 @@ static int fm1_cpu1_start(void)
     FM1_C1_SYNC();
     for (i = 0; i < 32u; i++)                   /* its interrupt bank: all off (core 0's is at 0x1EEF100) */
         *(volatile uint32_t *)(0x1EEF300u + 4u * i) = 0;
+    FM1_C1_STEP(11);
     *(volatile uint32_t *)0x01C7FFF8u = (uint32_t)(uintptr_t)&fm1_c1_entry;
+    FM1_C1_STEP(12);
     saved = FM1_C1_CLK;
     FM1_C1_CLK = saved | 0x8u;
     FM1_C1_SYNC();
+    FM1_C1_STEP(13);
     FM1_C1_CON |= 0x8u;
+    FM1_C1_STEP(14);
     FM1_C1_CON &= ~0x2u;
+    FM1_C1_STEP(15);
     t0 = FM1_C1_T4;
     while (!fm1_c1_mb.alive && FM1_C1_T4 - t0 < 24000u * 20u)   /* 20 ms */
         FM1_C1_SYNC();
+    FM1_C1_STEP(16);
     FM1_C1_CLK = saved;
+    FM1_C1_STEP(17);
     if (!fm1_c1_mb.alive) {
         fm1_cpu1_hold();
         return -1;

@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain26 – 2026-11-24
+
+A personal variant (RainViert/Obervave-MPE_RAIN), not an official OberVave release. A diagnosis build.
+
+- rain25 on the unit in question: S1, R04 (the watchdog): the FM-1 froze as soon as the second core was started.
+  rain26 starts it earlier (before the screen, the inputs and the ADC) and marks every step of the start (S11 entry
+  word, S12 clock, S13 run bit, S14 release, S15 waiting, S16 answered or not, S17 done), so the page shows where it froze.
+
 ## 3.5-rain25 – 2026-11-24
 
 A personal variant (RainViert/obervave), not an official OberVave release. A diagnosis build for the second core.
