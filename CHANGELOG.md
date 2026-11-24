@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain47 – 2026-11-24
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- OVERDUB, recording: REC held punches in REPLACE as long as it is held (the steps the playhead passes lose their notes
+  and expression, what this take had played there too); let go: OVERDUB again.
+- Recording, a tap on REC no longer ends the take: PLAY does. (Armed, not yet recording: a tap disarms as before.)
+  REC held 1.2 s still clears the track in REPLACE and when stopped.
+
 ## 3.5-rain46 – 2026-11-24
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
