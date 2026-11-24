@@ -765,6 +765,7 @@ static void rec_begin(void) { rec = REC_ON; undo_save(); memset(rec_on_bits, 0, 
 /* (RAIN 38) REC REPLACE: each step of the recording track the playhead comes to loses its notes and its recorded
  * expression (a step this take has played into stays; the knobs' lanes stay) */
 static uint32_t rep_last = 0xFFFFFFFFu;
+static uint32_t rec_punch;                      /* (RAIN 47) OVERDUB, recording: REC held = REPLACE while it is held */
 static void rep_clear(uint32_t t, uint32_t s)
 {
     uint32_t l;
@@ -781,7 +782,7 @@ static void rep_clear(uint32_t t, uint32_t s)
 static void rep_poll(void)
 {
     uint32_t t = seq_trk % NTRK, len = pat.trk[t].len, p;
-    if (rec != REC_ON || !ctl_seq_run || set.rec_mode != 1u || ctl_count || rec_wait || !len || !(ctl_trk_on >> t & 1u)) { rep_last = 0xFFFFFFFFu; return; }
+    if (rec != REC_ON || !ctl_seq_run || (set.rec_mode != 1u && !rec_punch) || ctl_count || rec_wait || !len || !(ctl_trk_on >> t & 1u)) { rep_last = 0xFFFFFFFFu; return; }
     p = ui_seq_pos[t] % len;
     if (rep_last >= len) { rep_last = p; rep_clear(t, p); return; }
     while (rep_last != p) { rep_last = rep_last + 1u >= len ? 0u : rep_last + 1u; rep_clear(t, rep_last); }
@@ -1359,7 +1360,7 @@ static void draw_hints(void)
     hints_key = key;
     if (toasting) ui_hints(toast, "", C_AMBER);
     else if (rec == REC_ON && ui_seq_count) { static char cnt[16]; cnt[0] = 0; scat(cnt, "COUNT-IN  "); fmt_u(cnt + slen(cnt), 5u - ui_seq_count); ui_hints(cnt, "RECORDING FROM THE NEXT 1", C_RED); }
-    else if (rec == REC_ON) { static char m[24]; m[0] = 0; scat(m, "RECORDING TRACK "); m[slen(m) + 1] = 0; m[slen(m)] = TRK_L[seq_trk % NTRK]; ui_hints(m, "PLAY ON TOP  REC: STOP REC", C_RED); }
+    else if (rec == REC_ON) { static char m[24]; m[0] = 0; scat(m, "RECORDING TRACK "); m[slen(m) + 1] = 0; m[slen(m)] = TRK_L[seq_trk % NTRK]; ui_hints(m, set.rec_mode ? "REPLACE  PLAY: STOP" : rec_punch ? "REPLACING  PLAY: STOP" : "REC HELD: REPLACE", C_RED); }
     else if (rec == REC_READY && ctl_seq_run) ui_hints("REC ARMED", "GLO + KEY 1-4: RECORD A TRACK", C_RED);
     else if (rec == REC_READY) ui_hints("REC READY", "YOUR FIRST NOTE STARTS IT", C_RED);
     else if (step_held >= 0) ui_hints("KNOB: EDIT  TAP LATER: LONG", "NOTE  LEVEL  RATCHET  GATE", C_AMBER);
@@ -2910,7 +2911,7 @@ static void app_main(void)
             else np = PG_ARP;
         }
         if (b & (1u << BTN_PLAY)) {             /* start from step 1 / stop (a take ends with it) */
-            if (ctl_seq_run) { ctl_seq_run = 0; rec = REC_OFF; rec_wait = 0; }   /* (the stop ends REC, armed too: the pads start / stop again) */
+            if (ctl_seq_run) { ctl_seq_run = 0; rec = REC_OFF; rec_wait = 0; rec_punch = 0; }   /* (the stop ends REC, armed too: the pads start / stop again) */
             else {
                 if (rec == REC_READY) { rec = REC_ON; undo_save(); ctl_count = set.click % NCLICK == CLICK_COUNT; }
                 ctl_seq_restart = 1; ctl_seq_run = 1;
@@ -2920,6 +2921,16 @@ static void app_main(void)
         if ((b & (1u << BTN_REC)) && (fm1_in.buttons >> BTN_SEL & 1u) && !layer) {   /* (RAIN 46) SELECT + REC: the RECORD page */
             np = PG_RECSET; sel_used = 1; sel_first = 0; b &= ~(1u << BTN_REC);
         }
+        if ((b & (1u << BTN_REC)) && rec == REC_ON && ctl_seq_run && !set.rec_mode) {
+            /* (RAIN 47) OVERDUB, recording: REC held punches in REPLACE (from the step playing, what this take played before
+             * goes as well); let go: OVERDUB again. PLAY ends the take */
+            rec_punch = 1; rep_last = 0xFFFFFFFFu;
+            memset(rec_on_bits[seq_trk % NTRK], 0, sizeof rec_on_bits[0]);
+            say("REPLACE WHILE REC IS HELD");
+            b &= ~(1u << BTN_REC);
+            dirty_tags = dirty_steps = dirty_page = 1;
+        }
+        if ((rel & (1u << BTN_REC)) && rec_punch) { rec_punch = 0; rep_poll(); say("OVERDUB"); dirty_tags = dirty_steps = dirty_page = 1; }
         if (b & (1u << BTN_REC)) { rec_down = 1; rec_down_t = fm1_ms; }   /* REC acts when let go; held 1.2 s it clears the track */
         if (rec_down && fm1_ms - rec_down_t > 1200u) {
             trk_clear();
@@ -2928,7 +2939,8 @@ static void app_main(void)
         }
         if (rel & (1u << BTN_REC) && rec_down) {
             if (fm1_ms - rec_down_t < 500u) {   /* a press: playing, record now / stop recording; stopped, arm */
-                if (rec) rec = REC_OFF;
+                if (rec == REC_ON && ctl_seq_run) say("PLAY ENDS THE TAKE");   /* (RAIN 47) a tap goes on recording */
+                else if (rec) rec = REC_OFF;
                 else if (ctl_seq_run) { rec = REC_ON; undo_save(); }
                 else rec = REC_READY;
                 memset(rec_open, 0, sizeof rec_open);

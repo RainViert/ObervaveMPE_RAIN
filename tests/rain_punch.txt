@@ -1,0 +1,20 @@
+# (RAIN 47) OVERDUB: four hits recorded (steps 1, 5, 9, 13); recording on, REC held over the bar's second half
+# (steps 9-16): those two go, steps 1 and 5 stay; a tap on REC goes on recording; PLAY ends the take, then plays it
+3000 midi 0xC0 70 0
+4000 btn 11
+4200 btn 13
+4500 midi 0x90 48 110
+4560 midi 0x80 48 0
+5000 midi 0x90 50 110
+5060 midi 0x80 50 0
+5500 midi 0x90 48 110
+5560 midi 0x80 48 0
+6000 midi 0x90 50 110
+6060 midi 0x80 50 0
+7450 btndown 13
+8450 btnup 13
+8700 btn 13
+9000 shot
+10500 btn 12
+11000 btn 12
+13000 end
