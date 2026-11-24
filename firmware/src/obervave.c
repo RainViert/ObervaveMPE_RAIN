@@ -80,12 +80,14 @@ static struct {
     uint8_t kit[NTRK][12], kit_ok;              /* (RAIN 31) each track's kit keys (KE_*, 0 the kit's default), with the slots */
     int8_t kit_tune[NTRK][12]; uint8_t ktune_ok;   /* (RAIN 33) each kit key's tuning in semitones (-24..+24), with the slots */
     uint8_t rec_mode, mpe_rec, recm_ok;         /* (RAIN 38) REC: 0 OVERDUB, 1 REPLACE; MPE REC: 0 NOTES (an MPE pattern), 1 TRACK */
+    uint8_t rec_own, rown_ok;                   /* (RAIN 40) MIDI IN while REC: 0 ALL CH (any channel to the track recording), 1 OWN CH */
 } set;
 #define RAIN10_OK 0xA1u
 #define RAIN18_OK 0xB2u
 #define KIT_OK 0x4Bu
 #define KTUNE_OK 0x5Cu
 #define RECM_OK 0x6Eu
+#define ROWN_OK 0x7Fu
 static char c1_text[40], c1_text2[40] = "SECOND CORE";                        /* (RAIN 22) the last failure in words, shown again on SELECT */
 static uint8_t c1_why;                          /* (RAIN 19) why the second core failed this power-on (0: it did not) */
 #ifndef OBV_HOST
@@ -1221,11 +1223,12 @@ static void draw_page(void)
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
         } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) how REC records */
-            static const char *const RCL[4] = {"REC", "MPE REC", "", ""};
+            static const char *const RCL[4] = {"REC", "MPE REC", "MIDI IN", ""};
             k[i].label = RCL[i];
-            k[i].present = i < 2u;
+            k[i].present = i < 3u;
             if (!i) { scat(k[i].value, set.rec_mode ? "REPLACE" : "OVERDUB"); k[i].v = set.rec_mode; k[i].max = 1; }
             else if (i == 1u) { scat(k[i].value, set.mpe_rec ? "TRACK" : "NOTES"); k[i].v = set.mpe_rec; k[i].max = 1; }
+            else if (i == 2u) { scat(k[i].value, set.rec_own ? "OWN CH" : "ALL CH"); k[i].v = set.rec_own; k[i].max = 1; }
         } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) SLOT, SOURCE, DEST, AMOUNT of the track's */
             static const char *const XL[4] = {"SLOT", "SOURCE", "DEST", "AMOUNT"};
             const mm_slot_t *m = &set.mm[seq_trk % NTRK][set.mm_slot % MM_N];
@@ -2353,6 +2356,14 @@ static void midi_in(uint32_t notes_only)
         }
         if (st == 0xFCu) { ctl_seq_run = 0; ctl_ext_lock = 0; dirty_tags = dirty_steps = 1; continue; }
         if (st >= 0xF0u) continue;
+        if (rec && !set.rec_own && (kind == 0x80u || kind == 0x90u) && !(seq_trk % NTRK == 0u && ctl_mpe_range && ch > 1u)) {
+            /* (RAIN 40) REC armed or recording: a note on any channel plays and records on the track recording (track
+             * A with MPE: its member channels keep their own way, with their expression) */
+            if (kind == 0x90u && d2) note_in(1, d1, d2);
+            else note_in(0, d1, 0);
+            dirty_steps = dirty_page = 1;
+            continue;
+        }
         {                                       /* (RAIN) a track B-D with a channel of its own */
             uint32_t t;
             for (t = 1; t < NTRK && set.ch_trk[t - 1u] != ch; t++) ;
@@ -2554,7 +2565,7 @@ static void app_main(void)
         {                                       /* (RAIN) the settings of an earlier RAIN (or OberVave's own): kept, the
                                                  * newer bytes from zero (their ok bytes then set the defaults below) */
 #define SET_AT(f) ((uint32_t)((uint8_t *)&set.f - (uint8_t *)&set))
-            const uint32_t SZ[11] = {sizeof set, SET_AT(rec_mode), SET_AT(kit_tune), SET_AT(kit), SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
+            const uint32_t SZ[12] = {sizeof set, SET_AT(rec_own), SET_AT(rec_mode), SET_AT(kit_tune), SET_AT(kit), SET_AT(cores2), SET_AT(mm_prog), SET_AT(mm), SET_AT(d1_pp), SET_AT(d2_div), SET_AT(dly_mode), SET_AT(mpe)};
             uint32_t z;
             for (z = 0; z < 9u; z++) {
                 set_rc = settings_load(&set, SZ[z]);
@@ -2608,6 +2619,7 @@ static void app_main(void)
     if (set.rain10_ok != RAIN10_OK) { memset(set.mm_prog, 0, sizeof set.mm_prog); set.rain10_ok = RAIN10_OK; }   /* (RAIN 10) */
     if (set.rain18_ok != RAIN18_OK || set.cores2 > 1u) { set.cores2 = 0; set.rain18_ok = RAIN18_OK; }   /* (RAIN 18) one core */
     if (set.kit_ok != KIT_OK) { memset(set.kit, 0, sizeof set.kit); set.kit_ok = KIT_OK; }   /* (RAIN 31) the kits' defaults */
+    if (set.rown_ok != ROWN_OK || set.rec_own > 1u) { set.rec_own = 0; set.rown_ok = ROWN_OK; }   /* (RAIN 40) ALL CH */
     if (set.recm_ok != RECM_OK || set.rec_mode > 1u || set.mpe_rec > 1u) { set.rec_mode = set.mpe_rec = 0; set.recm_ok = RECM_OK; }   /* (RAIN 38) */
     if (set.ktune_ok != KTUNE_OK) { memset(set.kit_tune, 0, sizeof set.kit_tune); set.ktune_ok = KTUNE_OK; }   /* (RAIN 33) untuned */
     if (set.rain9_ok != RAIN9_OK) { memset(set.mm, 0, sizeof set.mm); set.mm_slot = 0; set.rain9_ok = RAIN9_OK; }   /* (RAIN 9) */
@@ -2989,6 +3001,7 @@ static void app_main(void)
             } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) */
                 if (k == 0) set.rec_mode = e > 0 ? 1u : 0u;
                 else if (k == 1) set.mpe_rec = e > 0 ? 1u : 0u;
+                else if (k == 2) set.rec_own = e > 0 ? 1u : 0u;
                 set_dirty = 1; set_t = fm1_ms;
             } else if (page == PG_MATRIX && !layer && !SMK_PAD_HELD) {   /* (RAIN 9) */
                 int32_t s1 = e > 0 ? 1 : -1;
