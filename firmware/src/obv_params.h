@@ -28,9 +28,13 @@ enum {
 #define PX_SUB_LVL (NPARAM + PATCH_NAME)        /* 0..127, 0 = none */
 #define PX_SUB_OCT (PX_SUB_LVL + 1u)            /* 0: an octave below OSC 1, 1: two */
 #define PX_SUB_WAVE (PX_SUB_LVL + 2u)           /* 0 SQUARE, 1 SAW, 2 SINE */
+#define PX_LFO2 (PX_SUB_LVL + 3u)
+#define PX_L2_RATE (PX_LFO2)                  /* (RAIN 52) LFO 2: its rate (as LFO's RATE), */
+#define PX_L2_SHAPE (PX_LFO2 + 1u)              /* its shape (as LFO's SHAPE), */
+#define PX_L2_SYNC (PX_LFO2 + 2u)               /* 1: restarted by the first key of a chord */
 #define PX_OK (PATCH_BYTES - 1u)
 #define PX_MAGIC 0x5Bu
-#if PX_SUB_WAVE >= PX_OK
+#if PX_L2_SYNC >= PX_OK
 #error "no room for the sub oscillator"
 #endif
 #if NPARAM + PATCH_NAME > PATCH_BYTES
@@ -136,7 +140,7 @@ static const uint8_t DDIV_NUM[NDDIV] = {1, 1, 1, 3, 1, 3, 2, 3, 4}, DDIV_DEN[NDD
 /* the pages: four knobs each (-1 = no knob) */
 typedef struct { const char *title; int8_t p[4]; } page_t;
 enum { PG_PERFORM, PG_OSC1, PG_OSC2, PG_SUB, PG_VOICE, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST,
-       PG_LFO2, PG_MATRIX, PG_ARP, PG_CHORUS, PG_DELAY, PG_DELAY2, PG_DLY2, PG_DLY2P, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_MPE, PG_MPE2, PG_RECSET, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2; (RAIN) DELAY +, MPE, MPE + CH */
+       PG_LFO2, PG_LFOB, PG_MATRIX, PG_ARP, PG_CHORUS, PG_DELAY, PG_DELAY2, PG_DLY2, PG_DLY2P, PG_REVERB, PG_DRIVE, PG_OUTPUT, PG_MPE, PG_MPE2, PG_RECSET, PG_GLOBAL,   /* (3.3, as native 3.2) VOICE under EDIT, after OSC 2; (RAIN) DELAY +, MPE, MPE + CH */
        PG_MIXER, PG_SEQ, NPAGE };              /* the mixer (VIBE), the sequencer's step view: drawn by hand */
 static const page_t PAGE[NPAGE] = {
     [PG_PERFORM] = {"PERFORM", {P_CUTOFF, P_RESO, P_FENV_AMT, P_AR}},   /* (ALGORITHM picks the track now, as sloopDX) */
@@ -151,6 +155,7 @@ static const page_t PAGE[NPAGE] = {
     [PG_LFO] = {"LFO", {P_LFO_SHAPE, P_LFO_RATE, P_LFO_DELAY, P_LFO_PHASE}},
     [PG_LFODEST] = {"LFO DEST", {P_LFO_PITCH, P_LFO_PWM, P_LFO_FLT, P_LFO_AMP}},
     [PG_LFO2] = {"LFO +", {P_LFO_PITCH_TO, P_LFO_PWM_TO, -1, -1}},
+    [PG_LFOB] = {"LFO 2", {-1, -1, -1, -1}},   /* (RAIN 52) SHAPE, RATE, SYNC: in the patch's spare bytes; aimed by the MATRIX */
     [PG_MATRIX] = {"MATRIX", {-1, -1, -1, -1}},   /* (RAIN 9) the modulation matrix: the settings', drawn by hand */
     [PG_VOICE] = {"VOICE", {P_MODE, P_UNI_N, P_UNI_DET, P_GLIDE}},
     [PG_OUTPUT] = {"OUTPUT", {P_VINTAGE, P_SPREAD, P_BEND, P_VOLUME}},

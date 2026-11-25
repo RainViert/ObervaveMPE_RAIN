@@ -3,6 +3,14 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain52 – 2026-11-25
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- A second LFO per sound: the page LFO 2 in LFO's round (after LFO +): SHAPE (as LFO's), RATE, SYNC (FREE, or KEY:
+  restarted by the first key of a chord). It is a source of the MATRIX ("LFO 2"), aimed and dosed there. Kept in the
+  sound's spare bytes like the sub oscillator: every sound saved before loads as it was.
+
 ## 3.5-rain51 – 2026-11-25
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.

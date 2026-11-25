@@ -105,7 +105,7 @@ _Static_assert(sizeof set <= SETTINGS_MAX, "the settings outgrew their sector");
 #define RAIN2_OK 0x5Bu
 #define DLY_MS (set.dly_ms_lo | (uint32_t)set.dly_ms_hi << 8)
 #define RAIN_PAGE(pg) ((pg) == PG_DELAY2 || (pg) == PG_DLY2 || (pg) == PG_DLY2P || (pg) == PG_MPE || (pg) == PG_MPE2)
-static const char *const MXS_NAME[NMXS] = {"OFF", "LFO", "F-ENV", "A-ENV", "VELO", "KEY", "PRESS", "SLIDE", "WHEEL", "RAND"};
+static const char *const MXS_NAME[NMXS] = {"OFF", "LFO", "F-ENV", "A-ENV", "VELO", "KEY", "PRESS", "SLIDE", "WHEEL", "RAND", "LFO 2"};
 static const char *const MXD_NAME[NMXD] = {"OFF", "PITCH", "OSC 1", "OSC 2", "PW", "CUTOFF", "RESO", "LEVEL", "PAN", "O1 LVL",
                                            "O2 LVL", "NOISE", "X-MOD", "DLY SND", "DLY2 SND", "REV SND"};
 #define NDR 5u                                  /* (RAIN 14: + 1/16) */
@@ -334,6 +334,14 @@ static void fx_sync(void)                       /* the effects as edited (FX pag
     if (ch) { set.fx_ok = FX_OK; set_dirty = 1; set_t = fm1_ms; }
 }
 static int is_a_only(uint32_t p) { return p >= P_CHO_RATE && p <= P_REV_MIX; }   /* (the effects: one chain; each sound has its arp) */
+/* (RAIN 51/52) a sound's spare bytes made its own: the sub off, LFO 2 a slow triangle, free */
+static void px_init(patch_t *sp)
+{
+    if (sp->v[PX_OK] == PX_MAGIC) return;
+    sp->v[PX_SUB_LVL] = 0; sp->v[PX_SUB_OCT] = 0; sp->v[PX_SUB_WAVE] = 0;
+    sp->v[PX_L2_RATE] = 40; sp->v[PX_L2_SHAPE] = 0; sp->v[PX_L2_SYNC] = 0;
+    sp->v[PX_OK] = PX_MAGIC;
+}
 static patch_t *ed_patch(uint32_t p) { return is_a_only(p) ? &live_p[0] : &live_p[seq_trk % NTRK]; }
 static uint32_t ed_prog(void) { return trk_prog[seq_trk % NTRK]; }
 static uint32_t ed_edited(void) { return trk_edited[seq_trk % NTRK]; }
@@ -1255,6 +1263,15 @@ static void draw_page(void)
             if (!i) { uint32_t w = ok ? sp->v[PX_SUB_WAVE] % 3u : 0u; scat(k[i].value, SWN[w]); k[i].v = w; k[i].max = 2; }
             else if (i == 1u) { uint32_t o = ok && sp->v[PX_SUB_OCT] ? 1u : 0u; scat(k[i].value, o ? "-2" : "-1"); k[i].v = o; k[i].max = 1; }
             else if (i == 2u) { if (lv) fmt_u(k[i].value, lv); else scat(k[i].value, "OFF"); k[i].v = lv; k[i].max = 127; }
+        } else if (page == PG_LFOB && !layer && !SMK_PAD_HELD) {   /* (RAIN 52) LFO 2 of the track's sound */
+            static const char *const LL2[4] = {"SHAPE", "RATE", "SYNC", ""};
+            const patch_t *sp = &live_p[seq_trk % NPART];
+            uint32_t ok = sp->v[PX_OK] == PX_MAGIC;
+            k[i].label = LL2[i];
+            k[i].present = i < 3u;
+            if (!i) { uint32_t w = ok ? sp->v[PX_L2_SHAPE] % 6u : 0u; param_value(k[i].value, P_LFO_SHAPE, w); k[i].v = w; k[i].max = 5; }
+            else if (i == 1u) { uint32_t r = ok ? sp->v[PX_L2_RATE] & 127u : 40u; param_value(k[i].value, P_LFO_RATE, r); k[i].v = r; k[i].max = 127; }
+            else if (i == 2u) { uint32_t y = ok && sp->v[PX_L2_SYNC] == 1u; scat(k[i].value, y ? "KEY" : "FREE"); k[i].v = y; k[i].max = 1; }
         } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) how REC records */
             static const char *const RCL[4] = {"REC", "MPE", "MIDI IN", ""};
             k[i].label = RCL[i];
@@ -1410,7 +1427,7 @@ static void draw_mm_list(void)                  /* (RAIN 9) the MATRIX page: the
         l[0] = 0;
         fmt_u(l, k + 1u); scat(l, " ");
         if (m->src || m->dst) {
-            static const char *const SS[NMXS] = {"OFF", "LFO", "FENV", "AENV", "VEL", "KEY", "PRES", "SLID", "WHL", "RND"};
+            static const char *const SS[NMXS] = {"OFF", "LFO", "FENV", "AENV", "VEL", "KEY", "PRES", "SLID", "WHL", "RND", "LF2"};
             static const char *const DS[NMXD] = {"OFF", "PTCH", "OSC1", "OSC2", "PW", "CUT", "RES", "LVL", "PAN", "O1LV", "O2LV",
                                                  "NOIS", "XMOD", "DLY", "DLY2", "REV"};
             scat(l, SS[m->src % NMXS]); scat(l, ">"); scat(l, DS[m->dst % NMXD]); scat(l, a < 0 ? "-" : "+");
@@ -2931,7 +2948,7 @@ static void app_main(void)
             dirty_page = dirty_steps = dirty_tags = 1; leds_q = 0xFFFFFFFFu;
         }
         if (b & (1u << BTN_ENV)) np = cycle_page(PG_FENV, 2);
-        if (b & (1u << BTN_LFO)) np = cycle_page(PG_LFO, 4);   /* (RAIN 9: + MATRIX) */
+        if (b & (1u << BTN_LFO)) np = cycle_page(PG_LFO, 5);   /* (RAIN 9: + MATRIX; 52: + LFO 2) */
         if (b & (1u << BTN_ARP)) {
             if (page == PG_ARP) { hold ^= 1u << (seq_trk % NTRK); ctl_hold = hold; dirty_tags = 1; }   /* on its page: the panel's sound's HOLD */
             else np = PG_ARP;
@@ -3124,10 +3141,18 @@ static void app_main(void)
                 set_dirty = 1; set_t = fm1_ms;
             } else if (page == PG_SUB && !layer && !SMK_PAD_HELD) {   /* (RAIN 51) */
                 patch_t *sp = &live_p[seq_trk % NPART];
-                if (sp->v[PX_OK] != PX_MAGIC) { sp->v[PX_SUB_LVL] = 0; sp->v[PX_SUB_OCT] = 0; sp->v[PX_SUB_WAVE] = 0; sp->v[PX_OK] = PX_MAGIC; }
+                px_init(sp);
                 if (k == 0) sp->v[PX_SUB_WAVE] = (uint8_t)clampi((int32_t)(sp->v[PX_SUB_WAVE] % 3u) + e, 0, 2);
                 else if (k == 1) sp->v[PX_SUB_OCT] = e > 0 ? 1u : 0u;
                 else if (k == 2) sp->v[PX_SUB_LVL] = (uint8_t)clampi((int32_t)(sp->v[PX_SUB_LVL] % 128u) + e, 0, 127);
+                trk_edited[seq_trk % NTRK] = 1;
+            } else if (page == PG_LFOB && !layer && !SMK_PAD_HELD) {   /* (RAIN 52) */
+                patch_t *sp = &live_p[seq_trk % NPART];
+                px_init(sp);
+                if (sp->v[PX_L2_SYNC] > 1u) sp->v[PX_L2_SYNC] = 0;   /* (rain51's patches: spaces there) */
+                if (k == 0) sp->v[PX_L2_SHAPE] = (uint8_t)clampi((int32_t)(sp->v[PX_L2_SHAPE] % 6u) + e, 0, 5);
+                else if (k == 1) sp->v[PX_L2_RATE] = (uint8_t)clampi((int32_t)(sp->v[PX_L2_RATE] & 127u) + e, 0, 127);
+                else if (k == 2) sp->v[PX_L2_SYNC] = e > 0 ? 1u : 0u;
                 trk_edited[seq_trk % NTRK] = 1;
             } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) */
                 if (k == 0) set.rec_mode = e > 0 ? 1u : 0u;

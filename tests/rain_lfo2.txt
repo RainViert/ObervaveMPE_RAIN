@@ -1,0 +1,38 @@
+# (RAIN 52) INIT (program 80): LFO 2 SQUARE, rate 30 (a few Hz); MATRIX slot 1: LFO 2 -> PITCH +100 %: a held note
+# jumps an octave up and down at LFO 2's rate (LFO 1 does nothing: its depths are 0)
+3000 midi 0xC0 79 0
+3100 btn 5
+3110 btn 5
+3120 btn 5
+3130 btn 5
+3200 enc 2 1
+3210 enc 2 1
+3220 enc 2 1
+3230 enc 3 -1
+3240 enc 3 -1
+3250 enc 3 -1
+3260 enc 3 -1
+3270 enc 3 -1
+3280 enc 3 -1
+3290 enc 3 -1
+3300 enc 3 -1
+3310 enc 3 -1
+3320 enc 3 -1
+3400 shot
+3500 btn 5
+3600 enc 3 1
+3610 enc 3 1
+3620 enc 3 1
+3630 enc 3 1
+3640 enc 3 1
+3650 enc 3 1
+3660 enc 3 1
+3670 enc 3 1
+3680 enc 3 1
+3690 enc 3 1
+3700 enc 4 1
+3710 enc 5 40
+3900 shot
+4000 midi 0x90 60 100
+7000 midi 0x80 60 0
+7300 end
