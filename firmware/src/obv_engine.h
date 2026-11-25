@@ -19,7 +19,7 @@ enum { E_IDLE, E_ATT, E_DEC, E_SUS, E_REL };
 typedef struct { uint32_t stage; int32_t level; } env_t;   /* level Q24 */
 
 typedef struct {
-    osc_t o1, o2;
+    osc_t o1, o2, os;   /* (RAIN 51: os the sub oscillator) */
     uint32_t noise;
     env_t fe, ae;
     svf_state_t f1;
@@ -158,6 +158,7 @@ typedef struct {
     int32_t last_pitch16;                       /* where a glide starts from */
     int32_t fenv_amt, keytrk, velflt, lfo_pd, lfo_fd, lfo_pwd, lfo_ad, wheel_q, bend8, env_o2, det_fine8;
     int32_t lvl1, lvl2, lvln, drive_q12, reso_k, lad_k, vint, sus_f, sus_a, gain_q12, morph_q;
+    int32_t lvls; uint32_t sub_sh, sub_w;      /* (RAIN 51) the sub oscillator: level, octaves down, its wave (OSC_*) */
     int32_t cut_sm, reso_sm;                    /* CUTOFF and RESO slewed (Q8), ~25 ms: a CC sweep in semitone steps glides */
     uint32_t pw1_base, pw2_base, w1, w2, ftype, sync_on, xmod_q, glide_k;
 } part_t;
@@ -697,6 +698,12 @@ static void block_globals(part_t *g)            /* a sound's derived numbers, on
     d = pv[P_O1_LVL]; g->lvl1 = (d * d) >> 7;
     d = pv[P_O2_LVL]; g->lvl2 = (d * d) >> 7;
     d = pv[P_NOISE]; g->lvln = (d * d) >> 7;
+    if (pv[PX_OK] == PX_MAGIC && pv[PX_SUB_LVL] && pv[PX_SUB_LVL] <= 127u) {   /* (RAIN 51) */
+        static const uint8_t SW[3] = {OSC_PLS, OSC_SAW, OSC_SIN};
+        d = pv[PX_SUB_LVL]; g->lvls = (d * d) >> 7;
+        g->sub_sh = pv[PX_SUB_OCT] ? 2u : 1u;
+        g->sub_w = SW[pv[PX_SUB_WAVE] % 3u];
+    } else g->lvls = 0;
     d = pv[P_DRIVE]; g->drive_q12 = 4096 + (d * d * 15 * 4096 / 16129);   /* 1 .. 16 into the filter's input stage */
     g->cut_sm += ((pv[P_CUTOFF] << 8) - g->cut_sm) >> 6;   /* tau = 64 blocks = 23 ms */
     g->reso_sm += ((pv[P_RESO] << 8) - g->reso_sm) >> 6;
@@ -894,6 +901,8 @@ static void voice_render(voice_t *v, int32_t *out, int32_t *sd, int32_t *sd2, in
     uint32_t ft = g->ftype, xq = (uint32_t)v->xq, sy = g->sync_on, ww1 = g->w1, ww2 = g->w2;
     int32_t hw1 = (ww1 & OSC_SAW ? -65536 : 0) + (ww1 & OSC_PLS ? -65536 : 0);
     int32_t hw2 = (ww2 & OSC_SAW ? -65536 : 0) + (ww2 & OSC_PLS ? -65536 : 0);
+    int32_t ls = g->lvls, hws = -65536;         /* (RAIN 51) the sub: OSC 1's step an octave or two down, a half-wave pulse */
+    uint32_t sws = g->sub_w, is = inc1 >> g->sub_sh, ds = is >> 15;
     for (i = 0; i < CTL; i++) {
         int32_t s1, s2, mix, lp, bp, hp, y, amp, rt = -1;
         uint32_t ie = inc1;
@@ -909,6 +918,7 @@ static void voice_render(voice_t *v, int32_t *out, int32_t *sd, int32_t *sd2, in
         s2 = osc_step(&v->o2, inc2, d2, pw2, ww2, hw2, rt);
         o2n = v->o2.prev;
         mix = s1 * l1 + s2 * l2;
+        if (ls) mix += osc_step(&v->os, is, ds, 0x80000000u, sws, sws == OSC_SIN ? 0 : hws, -1) * ls;   /* (RAIN 51) */
         if (ln) mix += ((int32_t)(xorshift(&v->noise) >> 16) - 32768) * ln;
         mix >>= 7;
         mix = sat_in(((mix >> 3) * drv) >> 9);  /* the input stage: DRIVE's gain, then a tanh (never a hard clip) */
@@ -1145,6 +1155,7 @@ static void engine_init(void)
         vc[v].noise = 0x12345678u * (v + 1u) + 0x9E3779B9u;
         vc[v].o1.ph = xorshift(&vc[v].noise);  /* free-running oscillators start anywhere */
         vc[v].o2.ph = xorshift(&vc[v].noise);
+        vc[v].os.ph = vc[v].o1.ph;              /* (RAIN 51) */
         vc[v].gl = vc[v].gr = 2896;
     }
     for (v = 0; v < NPART; v++) {

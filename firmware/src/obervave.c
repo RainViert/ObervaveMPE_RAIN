@@ -1078,7 +1078,7 @@ static void param_value(char *s, uint32_t p, uint32_t v)   /* <= 7 characters */
     switch (PDEF[p].kind) {
     case K_BIP: if (v < 64u) { scat(s, "-"); fmt_u(t, 64u - v); } else { scat(s, v > 64u ? "+" : ""); fmt_u(t, v - 64u); } scat(s, t); break;
     case K_ONOFF: scat(s, v ? "ON" : "OFF"); break;
-    case K_WAVE: scat(s, WAVE_NAME[v & 3u]); break;
+    case K_WAVE: scat(s, WAVE_NAME[v % 5u]); break;   /* (RAIN 51: + SINE) */
     case K_FTYPE: scat(s, FTYPE_NAME[v % NFTYPE]); break;
     case K_MODE: scat(s, MODE_NAME[v % 6u]); break;
     case K_LSHAPE: scat(s, LSHAPE_NAME[v % 6u]); break;
@@ -1245,6 +1245,16 @@ static void draw_page(void)
             else if (i == 1) { scat(k[i].value, CLICK_NAME[set.click % NCLICK]); k[i].v = set.click % NCLICK; k[i].max = NCLICK - 1; }
             else if (i == 2) { if (set.midi_ch) fmt_u(k[i].value, set.midi_ch); else scat(k[i].value, "OMNI"); k[i].v = set.midi_ch; k[i].max = 16; }
             else { scat(k[i].value, set.tune < 0 ? "-" : "+"); fmt_u(k[i].value + 1, (uint32_t)(set.tune < 0 ? -set.tune : set.tune)); scat(k[i].value, "c"); k[i].v = set.tune + 50; k[i].max = 100; k[i].bip = 1; }
+        } else if (page == PG_SUB && !layer && !SMK_PAD_HELD) {   /* (RAIN 51) the sub oscillator of the track's sound */
+            static const char *const SL[4] = {"WAVE", "OCTAVE", "LEVEL", ""};
+            static const char *const SWN[3] = {"SQUARE", "SAW", "SINE"};
+            const patch_t *sp = &live_p[seq_trk % NPART];
+            uint32_t ok = sp->v[PX_OK] == PX_MAGIC, lv = ok ? sp->v[PX_SUB_LVL] % 128u : 0u;
+            k[i].label = SL[i];
+            k[i].present = i < 3u;
+            if (!i) { uint32_t w = ok ? sp->v[PX_SUB_WAVE] % 3u : 0u; scat(k[i].value, SWN[w]); k[i].v = w; k[i].max = 2; }
+            else if (i == 1u) { uint32_t o = ok && sp->v[PX_SUB_OCT] ? 1u : 0u; scat(k[i].value, o ? "-2" : "-1"); k[i].v = o; k[i].max = 1; }
+            else if (i == 2u) { if (lv) fmt_u(k[i].value, lv); else scat(k[i].value, "OFF"); k[i].v = lv; k[i].max = 127; }
         } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) how REC records */
             static const char *const RCL[4] = {"REC", "MPE", "MIDI IN", ""};
             k[i].label = RCL[i];
@@ -2861,7 +2871,7 @@ static void app_main(void)
                             say(HINT[seq_view]);
                             entry_reset();
                         } else if (LL[k] == L_EDIT && is_seq_page(page) && SV_ENTRY(seq_view)) seq_clear_cursor();
-                        else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC1, 6);
+                        else if (LL[k] == L_EDIT) np = cycle_page(PG_OSC1, 7);   /* (RAIN 51: + SUB OSC) */
                         else if (LL[k] == L_FX) np = cycle_page(PG_CHORUS, 7);   /* (RAIN: + DELAY +, DELAY 2, DELAY 2 +) */
                         else if (LL[k] == L_GLO) np = page == PG_GLOBAL ? PG_OUTPUT : page >= PG_OUTPUT && page < PG_MPE2 ? page + 1u : PG_GLOBAL;   /* (RAIN 46: RECORD not in the round: SELECT + REC) */   /* (RAIN: GLOBAL, OUTPUT, MPE, MPE + CHANNELS) */
                         else if (is_seq_page(page) && seq_view == SV_SLOTS) { mem_do(); entry_reset(); }   /* MEMORY: SAVE does it */
@@ -3112,6 +3122,13 @@ static void app_main(void)
                 else if (k == 2) set.midi_ch = (uint8_t)clampi(set.midi_ch + e, 0, 16);
                 else { set.tune = (int8_t)clampi(set.tune + e, -50, 50); ctl_tune8 = set.tune * 256 / 100; }
                 set_dirty = 1; set_t = fm1_ms;
+            } else if (page == PG_SUB && !layer && !SMK_PAD_HELD) {   /* (RAIN 51) */
+                patch_t *sp = &live_p[seq_trk % NPART];
+                if (sp->v[PX_OK] != PX_MAGIC) { sp->v[PX_SUB_LVL] = 0; sp->v[PX_SUB_OCT] = 0; sp->v[PX_SUB_WAVE] = 0; sp->v[PX_OK] = PX_MAGIC; }
+                if (k == 0) sp->v[PX_SUB_WAVE] = (uint8_t)clampi((int32_t)(sp->v[PX_SUB_WAVE] % 3u) + e, 0, 2);
+                else if (k == 1) sp->v[PX_SUB_OCT] = e > 0 ? 1u : 0u;
+                else if (k == 2) sp->v[PX_SUB_LVL] = (uint8_t)clampi((int32_t)(sp->v[PX_SUB_LVL] % 128u) + e, 0, 127);
+                trk_edited[seq_trk % NTRK] = 1;
             } else if (page == PG_RECSET && !layer && !SMK_PAD_HELD) {   /* (RAIN 38) */
                 if (k == 0) set.rec_mode = e > 0 ? 1u : 0u;
                 else if (k == 1) set.mpe_rec = e > 0 ? 1u : 0u;

@@ -63,6 +63,7 @@ typedef struct {
 
 #define OSC_SAW 1u
 #define OSC_PLS 2u
+#define OSC_SIN 4u                              /* (RAIN 51) a sine: no jump, nothing to correct */
 
 static inline __attribute__((always_inline)) int32_t osc_naive(uint32_t ph, uint32_t pw, uint32_t wave)   /* -98304 .. 98303 */
 {
@@ -71,6 +72,11 @@ static inline __attribute__((always_inline)) int32_t osc_naive(uint32_t ph, uint
         v = (int32_t)(ph >> 16) - 32768;
     if (wave & OSC_PLS)                         /* saw(ph) - saw(ph + pw): a pulse with mean 0 */
         v += (int32_t)(ph >> 16) - (int32_t)((ph + pw) >> 16);
+    if (wave & OSC_SIN) {                       /* a parabola, refined: sin to ~0.1 % (no table, no FPU) */
+        int32_t x = (int32_t)(ph >> 16) - 32768, y = (4 * x * (32768 - (x < 0 ? -x : x))) >> 15;
+        y += (7373 * (((y * (y < 0 ? -y : y)) >> 15) - y)) >> 15;
+        v += y;
+    }
     return v;
 }
 

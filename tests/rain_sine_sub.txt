@@ -1,0 +1,27 @@
+# (RAIN 51) an INIT sound (program 80), OSC 2 off. OSC 1 SINE: a note (a sine). OSC 1 off, the SUB OSC (SQUARE, -1,
+# level 100) alone: an octave lower, odd harmonics only. SUB WAVE SINE: a sine an octave lower
+3000 midi 0xC0 79 0
+3200 btn 6
+3300 enc 2 3
+3400 btn 6
+3500 enc 4 -127
+3600 midi 0x90 60 100
+4400 midi 0x80 60 0
+4600 btn 6
+4700 enc 4 100
+4750 shot
+4800 btn 6
+4810 btn 6
+4820 btn 6
+4830 btn 6
+4840 btn 6
+4900 enc 2 -10
+5100 midi 0x90 60 100
+5900 midi 0x80 60 0
+6000 btn 6
+6010 btn 6
+6100 enc 2 2
+6150 shot
+6200 midi 0x90 60 100
+7000 midi 0x80 60 0
+7300 end
