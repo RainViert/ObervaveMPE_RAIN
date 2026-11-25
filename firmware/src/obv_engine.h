@@ -97,7 +97,7 @@ enum { MD_OFF, MD_AMP, MD_CUT, MD_VIB, MD_PWM, NMD };
 /* (RAIN 9) the modulation matrix, as the Oberheim Matrix-6/12: per track MM_N slots, each a source to a destination by an
  * amount -100..100 %. Worked per voice per control block (16 samples); a track with no slot in use costs nothing */
 #define MM_N 8u
-enum { MXS_OFF, MXS_LFO, MXS_FENV, MXS_AENV, MXS_VEL, MXS_KEY, MXS_PRESS, MXS_SLIDE, MXS_WHEEL, MXS_RAND, NMXS };
+enum { MXS_OFF, MXS_LFO, MXS_FENV, MXS_AENV, MXS_VEL, MXS_KEY, MXS_PRESS, MXS_SLIDE, MXS_WHEEL, MXS_RAND, MXS_LFO2, NMXS };   /* (RAIN 52: + LFO 2, last: saved slots keep their numbers) */
 enum { MXD_OFF, MXD_PITCH, MXD_O1, MXD_O2, MXD_PW, MXD_CUT, MXD_RESO, MXD_AMP, MXD_PAN, MXD_O1LVL, MXD_O2LVL, MXD_NOISE,
        MXD_XMOD, MXD_SDLY, MXD_SDLY2, MXD_SREV, NMXD };   /* (RAIN 12: + the sends, per voice) */
 typedef struct { uint8_t src, dst; int8_t amt; } mm_slot_t;
@@ -155,6 +155,8 @@ typedef struct {
     const patch_t *p;
     uint32_t lfo_ph, lfo_rnd_a, lfo_rnd_b;
     int32_t lfo_val;                            /* this block, Q15 */
+    uint32_t lfo2_ph, lfo2_rnd_a, lfo2_rnd_b;   /* (RAIN 52) LFO 2, a matrix source */
+    int32_t lfo2_val;
     int32_t last_pitch16;                       /* where a glide starts from */
     int32_t fenv_amt, keytrk, velflt, lfo_pd, lfo_fd, lfo_pwd, lfo_ad, wheel_q, bend8, env_o2, det_fine8;
     int32_t lvl1, lvl2, lvln, drive_q12, reso_k, lad_k, vint, sus_f, sus_a, gain_q12, morph_q;
@@ -360,7 +362,10 @@ static void voice_trigger(uint32_t part, uint32_t note, uint32_t vel)
     if (pv[P_LFO_PHASE] == LP_SYNC && !legato) {
         for (i = 0; i < NV; i++)
             if (vc[i].gate && vc[i].part == part && vc[i].note != note) break;
-        if (i == NV) pt[part].lfo_ph = 0;       /* the first key of a chord restarts the LFO */
+        if (i == NV) {                          /* the first key of a chord restarts the LFO */
+            pt[part].lfo_ph = 0;
+            if (pt[part].p->v[PX_OK] == PX_MAGIC && pt[part].p->v[PX_L2_SYNC] == 1u) pt[part].lfo2_ph = 0;   /* (RAIN 52) */
+        }
     }
 }
 
@@ -651,7 +656,9 @@ static inline void env_tick(env_t *e, uint32_t a, uint32_t d, int32_t sus, uint3
 }
 
 /* ---- the LFO (global; per voice a phase offset in SPREAD and a delay / fade) */
-static int32_t lfo_shape(const part_t *g, uint32_t ph, uint32_t shape)
+static int32_t lfo_shape_r(uint32_t ra, uint32_t rb, uint32_t ph, uint32_t shape);
+static int32_t lfo_shape(const part_t *g, uint32_t ph, uint32_t shape) { return lfo_shape_r(g->lfo_rnd_a, g->lfo_rnd_b, ph, shape); }
+static int32_t lfo_shape_r(uint32_t ra, uint32_t rb, uint32_t ph, uint32_t shape)   /* (RAIN 52: its random values given) */
 {
     int32_t p;
     switch (shape) {
@@ -661,9 +668,9 @@ static int32_t lfo_shape(const part_t *g, uint32_t ph, uint32_t shape)
     case L_SAW: return 32767 - (int32_t)(ph >> 16);
     case L_RAMP: return (int32_t)(ph >> 16) - 32768;
     case L_SQR: return ph < 0x80000000u ? 32767 : -32767;
-    case L_SH: return (int32_t)(g->lfo_rnd_b >> 16) - 32768;
+    case L_SH: return (int32_t)(rb >> 16) - 32768;
     default: {                                  /* smooth random: a line from one random value to the next */
-        int32_t a = (int32_t)(g->lfo_rnd_a >> 16) - 32768, b = (int32_t)(g->lfo_rnd_b >> 16) - 32768;
+        int32_t a = (int32_t)(ra >> 16) - 32768, b = (int32_t)(rb >> 16) - 32768;
         return a + (int32_t)(((int64_t)(b - a) * (ph >> 8)) >> 24);
     }
     }
@@ -675,6 +682,12 @@ static void lfo_tick(part_t *g)
     g->lfo_ph += inc;
     if (g->lfo_ph < old) { g->lfo_rnd_a = g->lfo_rnd_b; g->lfo_rnd_b = xorshift(&rnd_state); }
     g->lfo_val = lfo_shape(g, g->lfo_ph, g->p->v[P_LFO_SHAPE]);
+    if (g->p->v[PX_OK] == PX_MAGIC) {           /* (RAIN 52) LFO 2 */
+        uint32_t i2 = LFO_INC[g->p->v[PX_L2_RATE] & 127u], o2 = g->lfo2_ph;
+        g->lfo2_ph += i2;
+        if (g->lfo2_ph < o2) { g->lfo2_rnd_a = g->lfo2_rnd_b; g->lfo2_rnd_b = xorshift(&rnd_state); }
+        g->lfo2_val = lfo_shape_r(g->lfo2_rnd_a, g->lfo2_rnd_b, g->lfo2_ph, g->p->v[PX_L2_SHAPE] % 6u);
+    } else g->lfo2_val = 0;
 }
 
 /* ---- one control block for a voice: pitch, cutoff, envelopes, amp */
@@ -814,6 +827,7 @@ static void voice_block(voice_t *v, uint32_t card)
                 if (!m->amt || !m->src || !m->dst || m->src >= NMXS || m->dst >= NMXD) continue;
                 switch (m->src) {
                 case MXS_LFO: val = lfo; break;
+                case MXS_LFO2: val = vpart(v)->lfo2_val; break;   /* (RAIN 52) */
                 case MXS_FENV: val = fenv; break;
                 case MXS_AENV: val = v->ae.level >> 9; break;
                 case MXS_VEL: val = (int32_t)v->vel * 258; break;
