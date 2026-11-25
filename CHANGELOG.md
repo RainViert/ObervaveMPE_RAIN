@@ -3,6 +3,15 @@
 OberVave for the M-VAVE FM-1 (and, as a beta, the M-Vave SMK-37). Newest first. Each release is on
 [GitHub](https://github.com/zvenson/obervave/releases) and on [the Firmware Hub](https://thefirmwarehub.com/firmware/obervave/).
 
+## 3.5-rain51 – 2026-11-25
+
+A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
+
+- OSC 1 and OSC 2: a fifth wave, SINE (no jump: no aliasing; a refined parabola, no table).
+- A sub oscillator: the page SUB OSC in EDIT's round after OSC 2: WAVE (SQUARE, SAW, SINE), OCTAVE (-1, -2 below
+  OSC 1, its pitch and glide, not its X-MOD or sync), LEVEL (OFF .. 127). It is kept in the sound's spare bytes after
+  the name, so every sound and slot saved before loads as it was (sub off); SOUND and MEMORY keep it.
+
 ## 3.5-rain50 – 2026-11-25
 
 A personal variant (RainViert/ObervaveMPE_RAIN), not an official OberVave release.
